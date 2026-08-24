@@ -1,0 +1,13 @@
+__pycache__/
+*.py[codz]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+checkpoints/
+runs/
+datasets/discord/
+datasets/tiny_stories/

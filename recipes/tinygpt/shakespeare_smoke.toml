@@ -1,0 +1,34 @@
+name = "tinygpt-shakespeare-smoke"
+output_dir = "runs/tinygpt-shakespeare-smoke"
+
+[model]
+family = "tinygpt"
+context_length = 64
+embedding_dim = 64
+num_heads = 4
+num_layers = 2
+hidden_dim = 192
+dropout = 0.0
+init_std = 0.02
+tie_embeddings = false
+position_encoding = "learned"
+
+[training]
+steps = 20
+batch_size = 8
+learning_rate = 0.001
+minimum_learning_rate = 0.0001
+warmup_steps = 2
+weight_decay = 0.0
+max_grad_norm = 1.0
+precision = "fp32"
+seed = 42
+log_every = 5
+eval_every = 10
+eval_batches = 2
+save_every = 20
+
+[data]
+train_path = "datasets/tiny_shakespeare/input.txt"
+validation_fraction = 0.1
+tokenizer = "character"

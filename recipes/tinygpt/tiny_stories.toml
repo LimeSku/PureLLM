@@ -1,0 +1,38 @@
+name = "tinygpt-tiny-stories"
+output_dir = "runs/tinygpt-tiny-stories"
+
+[model]
+family = "tinygpt"
+context_length = 256
+embedding_dim = 384
+num_heads = 6
+num_layers = 6
+hidden_dim = 1024
+dropout = 0.1
+init_std = 0.02
+tie_embeddings = true
+position_encoding = "rope"
+
+[training]
+steps = 10000
+batch_size = 32
+learning_rate = 0.0003
+minimum_learning_rate = 0.00003
+warmup_steps = 500
+weight_decay = 0.01
+max_grad_norm = 1.0
+precision = "fp32"
+seed = 42
+log_every = 100
+eval_every = 250
+eval_batches = 20
+save_every = 1000
+
+[data]
+train_path = "datasets/tiny_stories/train.txt"
+validation_path = "datasets/tiny_stories/validation.txt"
+tokenizer = "bpe"
+tokenizer_vocab_size = 1024
+tokenizer_training_characters = 1000000
+max_train_characters = 20000000
+max_validation_characters = 1000000
