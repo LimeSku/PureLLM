@@ -76,6 +76,7 @@ uv run python scripts/prepare_discord_dataset.py path/to/discord-exports \
 ```
 
 Then train with `recipes/tinygpt/discord.toml`.
+See the [conversation training guide](chat_finetuning.md) for the full workflow.
 
 Generated datasets and checkpoints are ignored by Git.
 
