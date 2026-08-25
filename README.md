@@ -2,6 +2,8 @@
 
 Educational language-model implementations built from scratch.
 
+See the [roadmap](ROADMAP.md) for planned improvements.
+
 ## What is included
 
 - Character and byte-pair tokenizers
