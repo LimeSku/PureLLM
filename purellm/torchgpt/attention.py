@@ -2,7 +2,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from purellm.llm.torchgpt.position import PositionEncoding, RotaryEmbedding
+from purellm.torchgpt.position import PositionEncoding, RotaryEmbedding
 
 
 class CausalSelfAttentionHead(nn.Module):

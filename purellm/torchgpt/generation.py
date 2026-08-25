@@ -1,6 +1,6 @@
 import torch
 
-from purellm.llm.torchgpt.model import TinyGPT
+from purellm.torchgpt.model import TinyGPT
 
 
 @torch.no_grad()

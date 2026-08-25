@@ -1,9 +1,9 @@
 import torch
 from torch import nn
 
-from purellm.llm.torchgpt.embeddings import TokenPositionEmbedding
-from purellm.llm.torchgpt.position import PositionEncoding
-from purellm.llm.torchgpt.transformer import TransformerBlock
+from purellm.torchgpt.embeddings import TokenPositionEmbedding
+from purellm.torchgpt.position import PositionEncoding
+from purellm.torchgpt.transformer import TransformerBlock
 
 
 class TinyGPT(nn.Module):

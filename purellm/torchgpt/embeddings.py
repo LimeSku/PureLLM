@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from purellm.llm.torchgpt.position import PositionEncoding
+from purellm.torchgpt.position import PositionEncoding
 
 
 class TokenPositionEmbedding(nn.Module):

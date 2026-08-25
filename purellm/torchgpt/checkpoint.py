@@ -11,12 +11,12 @@ from torch.optim.lr_scheduler import (
     SequentialLR,
 )
 
-from purellm.llm.tokenization import (
+from purellm.tokenization import (
     BytePairTokenizer,
     CharacterTokenizer,
     TextTokenizer,
 )
-from purellm.llm.torchgpt.model import TinyGPT
+from purellm.torchgpt.model import TinyGPT
 
 CHECKPOINT_FORMAT_VERSION = 1
 

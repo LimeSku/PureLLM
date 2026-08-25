@@ -2,8 +2,8 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from purellm.llm.torchgpt.attention import MultiHeadCausalSelfAttention
-from purellm.llm.torchgpt.position import PositionEncoding
+from purellm.torchgpt.attention import MultiHeadCausalSelfAttention
+from purellm.torchgpt.position import PositionEncoding
 
 
 class FeedForward(nn.Module):

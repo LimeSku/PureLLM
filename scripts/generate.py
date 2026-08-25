@@ -3,8 +3,8 @@ from pathlib import Path
 
 import torch
 
-from purellm.llm.torchgpt.checkpoint import load_model_checkpoint
-from purellm.llm.torchgpt.generation import generate
+from purellm.torchgpt.checkpoint import load_model_checkpoint
+from purellm.torchgpt.generation import generate
 
 
 def parse_args() -> argparse.Namespace:

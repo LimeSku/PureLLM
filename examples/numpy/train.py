@@ -3,11 +3,11 @@ from pathlib import Path
 
 import numpy as np
 
-from purellm.llm.generation import generate
-from purellm.llm.losses import SequenceCrossEntropy
-from purellm.llm.tinygpt.model import TinyGPT
-from purellm.llm.tokenization import BytePairTokenizer
-from purellm.llm.training import train_language_model_batch
+from purellm.generation import generate
+from purellm.losses import SequenceCrossEntropy
+from purellm.tinygpt.model import TinyGPT
+from purellm.tokenization import BytePairTokenizer
+from purellm.training import train_language_model_batch
 from purellm.optimizer.adam import Adam
 from purellm.optimizer.sgd import SGD
 

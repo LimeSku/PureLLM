@@ -2,7 +2,7 @@ import torch
 from torch.nn import functional as F
 from torch.optim import Optimizer
 
-from purellm.llm.torchgpt.model import TinyGPT
+from purellm.torchgpt.model import TinyGPT
 
 
 def language_model_loss(

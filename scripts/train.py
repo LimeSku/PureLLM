@@ -7,19 +7,19 @@ from torch.optim import Optimizer
 from torch.optim.lr_scheduler import CosineAnnealingLR, LRScheduler
 
 from purellm.config import DataConfig, TinyGPTConfig, load_config
-from purellm.llm.tokenization import (
+from purellm.tokenization import (
     BytePairTokenizer,
     CharacterTokenizer,
     TextTokenizer,
 )
-from purellm.llm.torchgpt.checkpoint import (
+from purellm.torchgpt.checkpoint import (
     SchedulerConfig,
     create_warmup_cosine_scheduler,
     load_training_checkpoint,
     save_training_checkpoint,
 )
-from purellm.llm.torchgpt.model import TinyGPT
-from purellm.llm.torchgpt.training import (
+from purellm.torchgpt.model import TinyGPT
+from purellm.torchgpt.training import (
     language_model_loss,
     train_language_model_step,
 )
