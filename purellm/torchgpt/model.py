@@ -39,19 +39,17 @@ class TinyGPT(nn.Module):
             dropout=dropout,
             position_encoding=position_encoding,
         )
-        self.blocks = nn.ModuleList(
-            [
-                TransformerBlock(
-                    embedding_dim=embedding_dim,
-                    num_heads=num_heads,
-                    hidden_dim=hidden_dim,
-                    init_std=init_std,
-                    dropout=dropout,
-                    position_encoding=position_encoding,
-                )
-                for _ in range(num_layers)
-            ]
-        )
+        self.blocks = nn.ModuleList([
+            TransformerBlock(
+                embedding_dim=embedding_dim,
+                num_heads=num_heads,
+                hidden_dim=hidden_dim,
+                init_std=init_std,
+                dropout=dropout,
+                position_encoding=position_encoding,
+            )
+            for _ in range(num_layers)
+        ])
 
         self.final_layer_norm = nn.LayerNorm(embedding_dim)
         self.W_output = nn.Linear(embedding_dim, vocab_size, bias=True)
@@ -61,9 +59,15 @@ class TinyGPT(nn.Module):
             nn.init.normal_(self.W_output.weight, mean=0.0, std=init_std)
         nn.init.zeros_(self.W_output.bias)
 
-    def forward(self, token_ids: torch.Tensor) -> torch.Tensor:
-        x = self.embedding_layer(token_ids)
+    def reset_cache(self) -> None:
         for block in self.blocks:
-            x = block(x)
+            block.attention.reset_cache()
+
+    def forward(self, token_ids: torch.Tensor, use_cache: bool = False) -> torch.Tensor:
+        cache_k = self.blocks[0].attention.cache_k if use_cache else None
+        position_offset = 0 if cache_k is None else cache_k.shape[-2]
+        x = self.embedding_layer(token_ids, position_offset=position_offset)
+        for block in self.blocks:
+            x = block(x, use_cache=use_cache)
         x = self.final_layer_norm(x)
         return self.W_output(x)

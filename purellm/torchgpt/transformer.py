@@ -47,7 +47,7 @@ class TransformerBlock(nn.Module):
         self.attention_dropout = nn.Dropout(dropout)
         self.feed_forward_dropout = nn.Dropout(dropout)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x + self.attention_dropout(self.attention(self.ln1(x)))
+    def forward(self, x: torch.Tensor, use_cache: bool = False) -> torch.Tensor:
+        x = x + self.attention_dropout(self.attention(self.ln1(x), use_cache=use_cache))
         x = x + self.feed_forward_dropout(self.feed_forward(self.ln2(x)))
         return x

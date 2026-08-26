@@ -28,6 +28,7 @@ class RotaryEmbedding(nn.Module):
         self,
         query: torch.Tensor,
         key: torch.Tensor,
+        position_offset: int = 0,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         if query.shape != key.shape:
             raise ValueError("query and key must have the same shape")
@@ -36,7 +37,8 @@ class RotaryEmbedding(nn.Module):
 
         sequence_length = query.shape[-2]
         positions = torch.arange(
-            sequence_length,
+            position_offset,
+            position_offset + sequence_length,
             dtype=self.inverse_frequencies.dtype,
             device=query.device,
         )

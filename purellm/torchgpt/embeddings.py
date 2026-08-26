@@ -33,18 +33,24 @@ class TokenPositionEmbedding(nn.Module):
         else:
             self.pos_embedding_layer = None
 
-    def forward(self, token_ids: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, token_ids: torch.Tensor, position_offset: int = 0
+    ) -> torch.Tensor:
         if token_ids.ndim != 2:
             raise ValueError("token_ids must have shape (batch_size, sequence_length)")
 
         _, sequence_length = token_ids.shape
-        if sequence_length > self.context_length:
-            raise ValueError(f"sequence length must not exceed {self.context_length}")
+        if sequence_length + position_offset > self.context_length:
+            raise ValueError(
+                f"sequence positions must not exceed {self.context_length}"
+            )
 
         token_embeddings = self.token_embedding_layer(token_ids)
         if self.pos_embedding_layer is None:
             return self.dropout(token_embeddings)
 
-        positions = torch.arange(sequence_length, device=token_ids.device)
+        positions = torch.arange(
+            position_offset, position_offset + sequence_length, device=token_ids.device
+        )
         pos_embeddings = self.pos_embedding_layer(positions)
         return self.dropout(token_embeddings + pos_embeddings.unsqueeze(0))
