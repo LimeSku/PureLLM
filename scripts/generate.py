@@ -1,5 +1,6 @@
 import argparse
 from pathlib import Path
+from time import perf_counter
 
 import torch
 
@@ -45,6 +46,7 @@ def main() -> None:
         ) from error
 
     torch.manual_seed(args.seed)
+    generation_started_at = perf_counter()
     generated_ids = generate(
         model=checkpoint.model,
         prompt_ids=prompt_ids,
@@ -52,10 +54,17 @@ def main() -> None:
         temperature=args.temperature,
         device=device,
     )
+    generation_elapsed = perf_counter() - generation_started_at
+    generated_token_count = len(generated_ids) - len(prompt_ids)
 
     print(f"Device: {device}")
     print(f"Checkpoint: {args.checkpoint} (step {checkpoint.step})")
     print(f"Prompt: {args.prompt!r}")
+    print(
+        f"Generation: {generated_token_count} tokens in "
+        f"{generation_elapsed:.2f}s "
+        f"({generated_token_count / generation_elapsed:.1f} tok/s)"
+    )
     print(checkpoint.tokenizer.decode(generated_ids, errors="replace"))
 
 
