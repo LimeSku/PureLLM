@@ -3,8 +3,8 @@ from pathlib import Path
 
 import numpy as np
 
-from purellm.tinygpt.embeddings import llmEmbeddingLayer
-from purellm.tinygpt.transformer import LayerNorm, TransformerBlock
+from purellm.tinygpt_numpy.embeddings import llmEmbeddingLayer
+from purellm.tinygpt_numpy.transformer import LayerNorm, TransformerBlock
 
 
 class TinyGPT:

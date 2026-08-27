@@ -1,6 +1,6 @@
 import numpy as np
 
-from purellm.tinygpt.attention import MultiHeadCausalSelfAttention
+from purellm.tinygpt_numpy.attention import MultiHeadCausalSelfAttention
 
 
 class FeedForward:

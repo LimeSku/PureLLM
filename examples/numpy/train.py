@@ -5,7 +5,7 @@ import numpy as np
 
 from purellm.generation import generate
 from purellm.losses import SequenceCrossEntropy
-from purellm.tinygpt.model import TinyGPT
+from purellm.tinygpt_numpy.model import TinyGPT
 from purellm.tokenization import BytePairTokenizer
 from purellm.training import train_language_model_batch
 from purellm.optimizer.adam import Adam
