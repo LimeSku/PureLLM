@@ -87,7 +87,9 @@ Generated datasets and checkpoints are ignored by Git.
 ```text
 datasets/tiny_shakespeare/   Small tracked corpus
 examples/numpy/              Pedagogical NumPy training example
-purellm/                     Models, tokenizers, config, and training primitives
+purellm/numpy/               NumPy model and training primitives
+purellm/torchgpt/            PyTorch model and training primitives
+purellm/tokenization/        Shared tokenizers
 recipes/tinygpt/             Reproducible experiment configurations
 scripts/                     Training, generation, and corpus commands
 ```

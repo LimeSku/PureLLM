@@ -3,13 +3,13 @@ from pathlib import Path
 
 import numpy as np
 
-from purellm.generation import generate
-from purellm.losses import SequenceCrossEntropy
-from purellm.tinygpt_numpy.model import TinyGPT
+from purellm.numpy.generation import generate
+from purellm.numpy.losses import SequenceCrossEntropy
+from purellm.numpy.model import TinyGPT
+from purellm.numpy.optimizer.adam import Adam
+from purellm.numpy.optimizer.sgd import SGD
+from purellm.numpy.training import train_language_model_batch
 from purellm.tokenization import BytePairTokenizer
-from purellm.training import train_language_model_batch
-from purellm.optimizer.adam import Adam
-from purellm.optimizer.sgd import SGD
 
 
 def parse_args() -> argparse.Namespace:

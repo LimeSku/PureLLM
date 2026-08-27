@@ -1,6 +1,6 @@
 import numpy as np
 
-from purellm.tinygpt_numpy.model import TinyGPT
+from purellm.numpy.model import TinyGPT
 
 
 def softmax(x: np.ndarray) -> np.ndarray:
