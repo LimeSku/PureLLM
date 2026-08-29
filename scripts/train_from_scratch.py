@@ -5,10 +5,8 @@ from time import perf_counter
 import torch
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import CosineAnnealingLR, LRScheduler
-from torch.utils.data import DataLoader
 
 from purellm.config import DataConfig, ExperimentConfig, TinyGPTConfig, load_config
-from purellm.dataset import create_dataloader
 from purellm.tokenization import (
     BytePairTokenizer,
     CharacterTokenizer,
@@ -69,6 +67,24 @@ def load_texts(config: DataConfig) -> tuple[str, str]:
     if not training_text or not validation_text:
         raise ValueError("training and validation data must not be empty")
     return training_text, validation_text
+
+
+def encode_text(
+    tokenizer: TextTokenizer,
+    text: str,
+    device: torch.device,
+    split: str,
+) -> torch.Tensor:
+    try:
+        encoded_text = tokenizer.encode(text)
+    except KeyError as error:
+        missing_character = error.args[0]
+        raise ValueError(
+            f"{split} text contains a character absent from the tokenizer "
+            f"vocabulary: {missing_character!r}"
+        ) from error
+
+    return torch.tensor(encoded_text, dtype=torch.long, device=device)
 
 
 def fit_tokenizer(text: str, config: DataConfig) -> TextTokenizer:
@@ -175,26 +191,46 @@ def create_run_directory(output_dir: Path) -> Path:
             return run_directory
 
 
+def sample_batch(
+    token_ids: torch.Tensor,
+    batch_size: int,
+    context_length: int,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    max_start = len(token_ids) - context_length
+    if max_start <= 0:
+        raise ValueError("token_ids must contain more tokens than context_length")
+
+    starts = torch.randint(
+        0,
+        max_start,
+        (batch_size,),
+        device=token_ids.device,
+    )
+    offsets = torch.arange(context_length, device=token_ids.device)
+    indices = starts[:, None] + offsets[None, :]
+    return token_ids[indices], token_ids[indices + 1]
+
+
 @torch.no_grad()
 def evaluate_language_model(
     model: TinyGPT,
-    data_loader: DataLoader,
-    device: torch.device,
+    token_ids: torch.Tensor,
+    batch_size: int,
+    context_length: int,
     num_batches: int,
     autocast_dtype: torch.dtype | None = None,
 ) -> float:
-    if len(data_loader) == 0:
-        raise ValueError("validation DataLoader must contain at least one batch")
-
     model.eval()
     losses = []
-    for batch_index, (x_batch, y_batch) in enumerate(data_loader):
-        if batch_index == num_batches:
-            break
-        x_batch = x_batch.to(device)
-        y_batch = y_batch.to(device)
+
+    for _ in range(num_batches):
+        x_batch, y_batch = sample_batch(
+            token_ids=token_ids,
+            batch_size=batch_size,
+            context_length=context_length,
+        )
         with torch.autocast(
-            device_type=device.type,
+            device_type=token_ids.device.type,
             dtype=autocast_dtype,
             enabled=autocast_dtype is not None,
         ):
@@ -211,17 +247,17 @@ def train_model(
     scheduler: LRScheduler,
     scheduler_config: SchedulerConfig,
     tokenizer: TextTokenizer,
-    training_loader: DataLoader,
-    validation_loader: DataLoader,
-    sample_prompt_ids: list[int],
+    train_token_ids: torch.Tensor,
+    validation_token_ids: torch.Tensor,
     config: ExperimentConfig,
     checkpoint_dir: Path,
     start_step: int,
     best_validation_loss: float,
     autocast_dtype: torch.dtype | None,
 ) -> None:
-    device = next(model.parameters()).device
+    device = train_token_ids.device
     training_config = config.training
+    sample_prompt_ids = validation_token_ids[: min(16, model.ctx_length)].tolist()
     sample_max_new_tokens = min(
         100,
         max(1, model.ctx_length - len(sample_prompt_ids)),
@@ -230,99 +266,52 @@ def train_model(
     synchronize_device(device)
     interval_started_at = perf_counter()
     last_reported_step = start_step - 1
-    step = start_step
 
-    while step <= scheduler_config.total_steps:
-        for x_batch, y_batch in training_loader:
-            if step > scheduler_config.total_steps:
-                return
+    for step in range(start_step, scheduler_config.total_steps + 1):
+        x_batch, y_batch = sample_batch(
+            token_ids=train_token_ids,
+            batch_size=training_config.batch_size,
+            context_length=model.ctx_length,
+        )
+        loss = train_language_model_step(
+            model=model,
+            optimizer=optimizer,
+            x_batch=x_batch,
+            y_batch=y_batch,
+            max_grad_norm=training_config.max_grad_norm,
+            autocast_dtype=autocast_dtype,
+        )
+        scheduler.step()
 
-            x_batch = x_batch.to(device)
-            y_batch = y_batch.to(device)
-            loss = train_language_model_step(
+        should_evaluate = (
+            step == 1
+            or step % training_config.eval_every == 0
+            or step == scheduler_config.total_steps
+        )
+        should_report = (
+            step == 1 or step % training_config.log_every == 0 or should_evaluate
+        )
+        if should_report:
+            synchronize_device(device)
+            training_elapsed = perf_counter() - interval_started_at
+            interval_steps = step - last_reported_step
+
+        validation_loss = None
+        saved_best_checkpoint_path = None
+        if should_evaluate:
+            validation_loss = evaluate_language_model(
                 model=model,
-                optimizer=optimizer,
-                x_batch=x_batch,
-                y_batch=y_batch,
-                max_grad_norm=training_config.max_grad_norm,
+                token_ids=validation_token_ids,
+                batch_size=training_config.batch_size,
+                context_length=model.ctx_length,
+                num_batches=training_config.eval_batches,
                 autocast_dtype=autocast_dtype,
             )
-            scheduler.step()
-
-            should_evaluate = (
-                step == 1
-                or step % training_config.eval_every == 0
-                or step == scheduler_config.total_steps
-            )
-            should_report = (
-                step == 1
-                or step % training_config.log_every == 0
-                or should_evaluate
-            )
-            if should_report:
-                synchronize_device(device)
-                training_elapsed = perf_counter() - interval_started_at
-                interval_steps = step - last_reported_step
-
-            validation_loss = None
-            saved_best_checkpoint_path = None
-            if should_evaluate:
-                validation_loss = evaluate_language_model(
-                    model=model,
-                    data_loader=validation_loader,
-                    device=device,
-                    num_batches=training_config.eval_batches,
-                    autocast_dtype=autocast_dtype,
-                )
-                if validation_loss < best_validation_loss:
-                    best_validation_loss = validation_loss
-                    best_checkpoint_path = checkpoint_dir / "best.pt"
-                    save_training_checkpoint(
-                        best_checkpoint_path,
-                        model=model,
-                        optimizer=optimizer,
-                        scheduler=scheduler,
-                        scheduler_config=scheduler_config,
-                        tokenizer=tokenizer,
-                        step=step,
-                        best_validation_loss=best_validation_loss,
-                    )
-                    saved_best_checkpoint_path = best_checkpoint_path
-
-            if should_report:
-                tokens_per_second = (
-                    interval_steps
-                    * training_config.batch_size
-                    * model.ctx_length
-                    / training_elapsed
-                )
-                message = (
-                    f"[train] {step:>6,}/{scheduler_config.total_steps:,} | "
-                    f"loss {loss.item():.4f}"
-                )
-                if validation_loss is not None:
-                    message += f" | val {validation_loss:.4f}"
-                message += (
-                    f" | lr {scheduler.get_last_lr()[0]:.2e} | "
-                    f"{tokens_per_second:,.0f} tok/s | "
-                    f"{training_elapsed / interval_steps:.3f}s/step"
-                )
-                print(message, flush=True)
-
-            if saved_best_checkpoint_path is not None:
-                print(
-                    f"[checkpoint] best | step {step:,} | "
-                    f"validation loss {validation_loss:.4f} | "
-                    f"{saved_best_checkpoint_path}"
-                )
-
-            if (
-                step % training_config.save_every == 0
-                or step == scheduler_config.total_steps
-            ):
-                last_checkpoint_path = checkpoint_dir / "last.pt"
+            if validation_loss < best_validation_loss:
+                best_validation_loss = validation_loss
+                best_checkpoint_path = checkpoint_dir / "best.pt"
                 save_training_checkpoint(
-                    last_checkpoint_path,
+                    best_checkpoint_path,
                     model=model,
                     optimizer=optimizer,
                     scheduler=scheduler,
@@ -331,32 +320,75 @@ def train_model(
                     step=step,
                     best_validation_loss=best_validation_loss,
                 )
-                print(f"[checkpoint] latest | step {step:,} | {last_checkpoint_path}")
+                saved_best_checkpoint_path = best_checkpoint_path
 
-            if should_evaluate:
-                with torch.random.fork_rng(
-                    devices=[] if device.type == "cpu" else None,
-                    device_type=device.type,
-                ):
-                    torch.manual_seed(training_config.seed)
-                    generated_ids = generate(
-                        model=model,
-                        prompt_ids=sample_prompt_ids,
-                        max_new_tokens=sample_max_new_tokens,
-                        temperature=0.8,
-                        device=device,
-                        autocast_dtype=autocast_dtype,
-                    )
-                print(
-                    f"[sample] step {step:,}\n"
-                    f"{tokenizer.decode(generated_ids, errors='replace')}\n",
-                    flush=True,
+        if should_report:
+            tokens_per_second = (
+                interval_steps
+                * training_config.batch_size
+                * model.ctx_length
+                / training_elapsed
+            )
+            message = (
+                f"[train] {step:>6,}/{scheduler_config.total_steps:,} | "
+                f"loss {loss.item():.4f}"
+            )
+            if validation_loss is not None:
+                message += f" | val {validation_loss:.4f}"
+            message += (
+                f" | lr {scheduler.get_last_lr()[0]:.2e} | "
+                f"{tokens_per_second:,.0f} tok/s | "
+                f"{training_elapsed / interval_steps:.3f}s/step"
+            )
+            print(message, flush=True)
+
+        if saved_best_checkpoint_path is not None:
+            print(
+                f"[checkpoint] best | step {step:,} | "
+                f"validation loss {validation_loss:.4f} | "
+                f"{saved_best_checkpoint_path}"
+            )
+
+        if (
+            step % training_config.save_every == 0
+            or step == scheduler_config.total_steps
+        ):
+            last_checkpoint_path = checkpoint_dir / "last.pt"
+            save_training_checkpoint(
+                last_checkpoint_path,
+                model=model,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                scheduler_config=scheduler_config,
+                tokenizer=tokenizer,
+                step=step,
+                best_validation_loss=best_validation_loss,
+            )
+            print(f"[checkpoint] latest | step {step:,} | {last_checkpoint_path}")
+
+        if should_evaluate:
+            with torch.random.fork_rng(
+                devices=[] if device.type == "cpu" else None,
+                device_type=device.type,
+            ):
+                torch.manual_seed(training_config.seed)
+                generated_ids = generate(
+                    model=model,
+                    prompt_ids=sample_prompt_ids,
+                    max_new_tokens=sample_max_new_tokens,
+                    temperature=0.8,
+                    device=device,
+                    autocast_dtype=autocast_dtype,
                 )
+            print(
+                f"[sample] step {step:,}\n"
+                f"{tokenizer.decode(generated_ids, errors='replace')}\n",
+                flush=True,
+            )
 
-            if should_report:
-                interval_started_at = perf_counter()
-                last_reported_step = step
-            step += 1
+        if should_report:
+            interval_started_at = perf_counter()
+            last_reported_step = step
 
 
 def print_training_intro(
@@ -373,8 +405,8 @@ def print_training_intro(
     tokenizer_training_elapsed: float | None,
     training_character_count: int,
     validation_character_count: int,
-    training_sequence_count: int,
-    validation_sequence_count: int,
+    training_token_count: int,
+    validation_token_count: int,
     start_step: int,
 ) -> None:
     parameter_count = sum(parameter.numel() for parameter in model.parameters())
@@ -393,7 +425,7 @@ def print_training_intro(
         scheduler_description = f"cosine to {scheduler_config.minimum_lr:.2e}"
 
     print(
-        f"\nPureLLM | {config.name}\n"
+        f"\nPureLLM from scratch | {config.name}\n"
         f"  config        {args.config}\n"
         f"  output        {run_directory}\n"
         f"  runtime       {device} | {config.training.precision}\n"
@@ -401,8 +433,8 @@ def print_training_intro(
         f"  source        {config.data.train_path}\n"
         f"  characters    train {training_character_count:,} | "
         f"validation {validation_character_count:,}\n"
-        f"  sequences     train {training_sequence_count:,} | "
-        f"validation {validation_sequence_count:,}\n"
+        f"  tokens        train {training_token_count:,} | "
+        f"validation {validation_token_count:,}\n"
         f"  tokenizer     {tokenizer_description}\n"
         f"\nModel\n"
         f"  architecture  {config.model_family} | {model.position_encoding} | "
@@ -485,29 +517,13 @@ def main() -> None:
         start_step = loaded_checkpoint.step + 1
         best_validation_loss = loaded_checkpoint.best_validation_loss
 
-    training_loader = create_dataloader(
-        training_text,
+    train_token_ids = encode_text(tokenizer, training_text, device, "training")
+    validation_token_ids = encode_text(
         tokenizer,
-        batch_size=training_config.batch_size,
-        max_length=model.ctx_length,
-        stride=model.ctx_length,
-        shuffle=True,
-        drop_last=True,
-    )
-    validation_loader = create_dataloader(
         validation_text,
-        tokenizer,
-        batch_size=training_config.batch_size,
-        max_length=model.ctx_length,
-        stride=model.ctx_length,
-        shuffle=False,
-        drop_last=False,
+        device,
+        "validation",
     )
-    if len(training_loader) == 0:
-        raise ValueError("training DataLoader must contain at least one batch")
-    if len(validation_loader) == 0:
-        raise ValueError("validation DataLoader must contain at least one batch")
-
     scheduler_config = SchedulerConfig(
         total_steps=training_config.steps,
         warmup_steps=training_config.warmup_steps,
@@ -518,9 +534,6 @@ def main() -> None:
     elif loaded_checkpoint.scheduler_config != scheduler_config:
         raise ValueError("checkpoint scheduler does not match the training config")
 
-    sample_prompt_ids = tokenizer.encode(validation_text)[
-        : min(16, model.ctx_length)
-    ]
     training_character_count = len(training_text)
     validation_character_count = len(validation_text)
     del training_text, validation_text
@@ -546,8 +559,8 @@ def main() -> None:
         tokenizer_training_elapsed=tokenizer_training_elapsed,
         training_character_count=training_character_count,
         validation_character_count=validation_character_count,
-        training_sequence_count=len(training_loader.dataset),
-        validation_sequence_count=len(validation_loader.dataset),
+        training_token_count=len(train_token_ids),
+        validation_token_count=len(validation_token_ids),
         start_step=start_step,
     )
     train_model(
@@ -556,9 +569,8 @@ def main() -> None:
         scheduler=scheduler,
         scheduler_config=scheduler_config,
         tokenizer=tokenizer,
-        training_loader=training_loader,
-        validation_loader=validation_loader,
-        sample_prompt_ids=sample_prompt_ids,
+        train_token_ids=train_token_ids,
+        validation_token_ids=validation_token_ids,
         config=config,
         checkpoint_dir=checkpoint_dir,
         start_step=start_step,

@@ -33,6 +33,13 @@ come from the TOML file:
 uv run python scripts/train.py recipes/tinygpt/shakespeare.toml
 ```
 
+The main script uses PyTorch `Dataset` and `DataLoader`. To compare it with
+direct random sampling from an on-device token tensor:
+
+```bash
+uv run python scripts/train_from_scratch.py recipes/tinygpt/shakespeare.toml
+```
+
 Each fresh launch creates the next numbered run directory, such as
 `runs/tinygpt-shakespeare/1/` and `runs/tinygpt-shakespeare/2/`, and saves the
 recipe as `config.toml` inside it. Resuming from a checkpoint keeps writing to
