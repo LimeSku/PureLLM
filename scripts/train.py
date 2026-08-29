@@ -222,6 +222,7 @@ def train_model(
 ) -> None:
     device = next(model.parameters()).device
     training_config = config.training
+    steps_per_epoch = len(training_loader)
     sample_max_new_tokens = min(
         100,
         max(1, model.ctx_length - len(sample_prompt_ids)),
@@ -231,8 +232,9 @@ def train_model(
     interval_started_at = perf_counter()
     last_reported_step = start_step - 1
     step = start_step
+    first_epoch = (start_step - 1) // steps_per_epoch + 1
 
-    while step <= scheduler_config.total_steps:
+    for epoch in range(first_epoch, training_config.epochs + 1):
         for x_batch, y_batch in training_loader:
             if step > scheduler_config.total_steps:
                 return
@@ -297,7 +299,8 @@ def train_model(
                     / training_elapsed
                 )
                 message = (
-                    f"[train] {step:>6,}/{scheduler_config.total_steps:,} | "
+                    f"[train] epoch {epoch:,}/{training_config.epochs:,} | "
+                    f"step {step:>6,}/{scheduler_config.total_steps:,} | "
                     f"loss {loss.item():.4f}"
                 )
                 if validation_loss is not None:
@@ -375,6 +378,7 @@ def print_training_intro(
     validation_character_count: int,
     training_sequence_count: int,
     validation_sequence_count: int,
+    steps_per_epoch: int,
     start_step: int,
 ) -> None:
     parameter_count = sum(parameter.numel() for parameter in model.parameters())
@@ -416,7 +420,10 @@ def print_training_intro(
         f"  optimizer     AdamW | lr {optimizer.param_groups[0]['lr']:.2e} | "
         f"weight decay {config.training.weight_decay}\n"
         f"  schedule      {scheduler_description}\n"
-        f"  batches       steps {config.training.steps:,} | "
+        f"  duration      epochs {config.training.epochs:,} | "
+        f"max steps {config.training.max_steps:,} | "
+        f"planned steps {scheduler_config.total_steps:,}\n"
+        f"  batches       {steps_per_epoch:,}/epoch | "
         f"size {config.training.batch_size}\n"
         f"  checkpoints   {checkpoint_dir}"
     )
@@ -508,8 +515,13 @@ def main() -> None:
     if len(validation_loader) == 0:
         raise ValueError("validation DataLoader must contain at least one batch")
 
+    steps_per_epoch = len(training_loader)
+    total_steps = min(
+        training_config.max_steps,
+        training_config.epochs * steps_per_epoch,
+    )
     scheduler_config = SchedulerConfig(
-        total_steps=training_config.steps,
+        total_steps=total_steps,
         warmup_steps=training_config.warmup_steps,
         minimum_lr=training_config.minimum_learning_rate,
     )
@@ -548,6 +560,7 @@ def main() -> None:
         validation_character_count=validation_character_count,
         training_sequence_count=len(training_loader.dataset),
         validation_sequence_count=len(validation_loader.dataset),
+        steps_per_epoch=steps_per_epoch,
         start_step=start_step,
     )
     train_model(

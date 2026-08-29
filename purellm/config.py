@@ -1,9 +1,10 @@
 import argparse
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from pprint import pprint
 from typing import Any, Literal
+
+import tomllib
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,7 +45,8 @@ class TinyGPTConfig:
 
 @dataclass(frozen=True, slots=True)
 class TrainingConfig:
-    steps: int
+    epochs: int
+    max_steps: int
     batch_size: int
     learning_rate: float
     minimum_learning_rate: float = 3e-5
@@ -60,7 +62,8 @@ class TrainingConfig:
 
     def __post_init__(self) -> None:
         for name in (
-            "steps",
+            "epochs",
+            "max_steps",
             "batch_size",
             "log_every",
             "eval_every",
@@ -75,8 +78,8 @@ class TrainingConfig:
             raise ValueError(
                 "training.minimum_learning_rate must be between 0 and learning_rate"
             )
-        if not 0 <= self.warmup_steps < self.steps:
-            raise ValueError("training.warmup_steps must be below training.steps")
+        if not 0 <= self.warmup_steps < self.max_steps:
+            raise ValueError("training.warmup_steps must be below training.max_steps")
         if self.weight_decay < 0:
             raise ValueError("training.weight_decay must be non-negative")
         if self.max_grad_norm <= 0:

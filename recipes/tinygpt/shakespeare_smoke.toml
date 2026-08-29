@@ -14,14 +14,15 @@ tie_embeddings = false
 position_encoding = "learned"
 
 [training]
-steps = 20
+epochs = 1
+max_steps = 20
 batch_size = 8
 learning_rate = 0.001
 minimum_learning_rate = 0.0001
 warmup_steps = 2
 weight_decay = 0.0
 max_grad_norm = 1.0
-precision = "fp32"
+precision = "bf16"
 seed = 42
 log_every = 5
 eval_every = 10

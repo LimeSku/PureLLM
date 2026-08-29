@@ -1,4 +1,5 @@
 import argparse
+from math import ceil
 from pathlib import Path
 from time import perf_counter
 
@@ -251,6 +252,7 @@ def train_model(
     validation_token_ids: torch.Tensor,
     config: ExperimentConfig,
     checkpoint_dir: Path,
+    steps_per_epoch: int,
     start_step: int,
     best_validation_loss: float,
     autocast_dtype: torch.dtype | None,
@@ -268,6 +270,7 @@ def train_model(
     last_reported_step = start_step - 1
 
     for step in range(start_step, scheduler_config.total_steps + 1):
+        epoch = (step - 1) // steps_per_epoch + 1
         x_batch, y_batch = sample_batch(
             token_ids=train_token_ids,
             batch_size=training_config.batch_size,
@@ -330,7 +333,8 @@ def train_model(
                 / training_elapsed
             )
             message = (
-                f"[train] {step:>6,}/{scheduler_config.total_steps:,} | "
+                f"[train] epoch {epoch:,}/{training_config.epochs:,} | "
+                f"step {step:>6,}/{scheduler_config.total_steps:,} | "
                 f"loss {loss.item():.4f}"
             )
             if validation_loss is not None:
@@ -407,6 +411,7 @@ def print_training_intro(
     validation_character_count: int,
     training_token_count: int,
     validation_token_count: int,
+    steps_per_epoch: int,
     start_step: int,
 ) -> None:
     parameter_count = sum(parameter.numel() for parameter in model.parameters())
@@ -448,7 +453,10 @@ def print_training_intro(
         f"  optimizer     AdamW | lr {optimizer.param_groups[0]['lr']:.2e} | "
         f"weight decay {config.training.weight_decay}\n"
         f"  schedule      {scheduler_description}\n"
-        f"  batches       steps {config.training.steps:,} | "
+        f"  duration      virtual epochs {config.training.epochs:,} | "
+        f"max steps {config.training.max_steps:,} | "
+        f"planned steps {scheduler_config.total_steps:,}\n"
+        f"  batches       {steps_per_epoch:,}/virtual epoch | "
         f"size {config.training.batch_size}\n"
         f"  checkpoints   {checkpoint_dir}"
     )
@@ -524,8 +532,14 @@ def main() -> None:
         device,
         "validation",
     )
+    tokens_per_step = training_config.batch_size * model.ctx_length
+    steps_per_epoch = ceil((len(train_token_ids) - 1) / tokens_per_step)
+    total_steps = min(
+        training_config.max_steps,
+        training_config.epochs * steps_per_epoch,
+    )
     scheduler_config = SchedulerConfig(
-        total_steps=training_config.steps,
+        total_steps=total_steps,
         warmup_steps=training_config.warmup_steps,
         minimum_lr=training_config.minimum_learning_rate,
     )
@@ -561,6 +575,7 @@ def main() -> None:
         validation_character_count=validation_character_count,
         training_token_count=len(train_token_ids),
         validation_token_count=len(validation_token_ids),
+        steps_per_epoch=steps_per_epoch,
         start_step=start_step,
     )
     train_model(
@@ -573,6 +588,7 @@ def main() -> None:
         validation_token_ids=validation_token_ids,
         config=config,
         checkpoint_dir=checkpoint_dir,
+        steps_per_epoch=steps_per_epoch,
         start_step=start_step,
         best_validation_loss=best_validation_loss,
         autocast_dtype=autocast_dtype,
