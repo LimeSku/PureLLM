@@ -8,20 +8,29 @@ class LLMDataset(Dataset):
         self.target_ids = []
 
         # Tokenize the entire text
-        token_ids = tokenizer.encode(txt)
-
+        self.token_ids = torch.tensor(
+            tokenizer.encode(txt),
+            dtype=torch.long,
+        )
+        self.stride = stride
+        self.max_length = max_length
         # Use a sliding window to chunk the book into overlapping sequences of max_length
-        for i in range(0, len(token_ids) - max_length, stride):
-            input_chunk = token_ids[i : i + max_length]
-            target_chunk = token_ids[i + 1 : i + max_length + 1]
-            self.input_ids.append(torch.tensor(input_chunk))
-            self.target_ids.append(torch.tensor(target_chunk))
+        # for i in range(0, len(token_ids) - max_length, stride):
+        # input_chunk = token_ids[i : i + max_length]
+        # target_chunk = token_ids[i + 1 : i + max_length + 1]
+        # self.input_ids.append(torch.tensor(input_chunk))
+        # self.target_ids.append(torch.tensor(target_chunk))
 
     def __len__(self):
-        return len(self.input_ids)
+        return len(range(0, len(self.token_ids) - self.max_length, self.stride))
+        # return len(self.input_ids)
 
     def __getitem__(self, idx):
-        return self.input_ids[idx], self.target_ids[idx]
+        start = idx * self.stride
+        x = self.token_ids[start : start + self.max_length]
+        y = self.token_ids[start + 1 : start + self.max_length + 1]
+        return x, y
+        # return self.input_ids[idx], self.target_ids[idx]
 
 
 def create_dataloader(
