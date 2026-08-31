@@ -1,102 +1,90 @@
 # PureLLM
 
-Educational language-model implementations built from scratch.
+PureLLM is an educational decoder-only language model implemented twice:
+first in NumPy with manual backpropagation, then in PyTorch to explore modern
+training and inference techniques without hiding the model behind a high-level
+LLM framework.
 
-See the [roadmap](ROADMAP.md) for planned improvements.
+## Highlights
 
-## What is included
+- Character-level and BPE tokenizers
+- TinyGPT implemented in NumPy, including manual backpropagation
+- PyTorch implementation with RoPE, SwiGLU, and tied embeddings
+- Native PyTorch scaled-dot-product attention
+- Mixed-precision training on supported devices
+- KV cache for autoregressive generation
+- CPU, Apple Silicon/MPS, and CUDA support
+- TOML experiment recipes, checkpoints, and training resume
 
-- Character and byte-pair tokenizers
-- A NumPy TinyGPT implementation with manual backpropagation
-- A PyTorch TinyGPT implementation with CUDA, MPS, and CPU support
-- Training, generation, checkpointing, RoPE, SwiGLU, and weight tying
-- Tiny Shakespeare, TinyStories, and Discord corpus helpers
+## Quick start
 
-## Setup
+Requirements: Python 3.13+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 uv sync
+uv run python scripts/train.py recipes/tinygpt/shakespeare_smoke.toml
 ```
 
-## Run
-
-Validate the example experiment configuration:
+Train the TinyStories model and cache the prepared tokenizer:
 
 ```bash
-uv run python -m purellm.config recipes/tinygpt/shakespeare.toml
+uv run python scripts/train.py \
+  recipes/tinygpt/tiny_stories.toml \
+  --cache-tokenizer
 ```
 
-Train on the included Tiny Shakespeare corpus. Model, data, and training settings
-come from the TOML file:
+## Implementations
 
-```bash
-uv run python scripts/train.py recipes/tinygpt/shakespeare.toml
-```
+### NumPy
 
-The main script uses PyTorch `Dataset` and `DataLoader`. To compare it with
-direct random sampling from an on-device token tensor:
+The NumPy implementation exposes the mechanics of a transformer explicitly:
+forward pass, gradients, optimizer updates, and autoregressive generation.
 
-```bash
-uv run python scripts/train_from_scratch.py recipes/tinygpt/shakespeare.toml
-```
+It is designed for understanding and correctness, not training performance.
 
-Each fresh launch creates the next numbered run directory, such as
-`runs/tinygpt-shakespeare/1/` and `runs/tinygpt-shakespeare/2/`, and saves the
-recipe as `config.toml` inside it. Resuming from a checkpoint keeps writing to
-its existing run directory.
+### PyTorch
 
-Available recipes cover the main implemented paths:
+The PyTorch implementation keeps the architecture visible while reusing
+low-level optimized primitives where they improve performance or reliability,
+including `torch.nn.functional.scaled_dot_product_attention`.
 
-| Recipe | Purpose |
-| --- | --- |
-| `shakespeare.toml` | Character tokenizer, RoPE, tied embeddings |
-| `shakespeare_smoke.toml` | Short local check, learned positions, untied embeddings |
-| `tiny_stories.toml` | BPE and separate train/validation files |
-| `discord.toml` | BPE on a converted conversational corpus |
+It is used to experiment with mixed precision, compilation, efficient
+generation, and accelerator-specific performance.
 
-Generate text from a checkpoint:
+## Example architecture
 
-```bash
-uv run python scripts/generate.py \
-  runs/tinygpt-shakespeare/1/checkpoints/best.pt "ROMEO:"
-```
+The TinyStories recipe currently trains an approximately 11M-parameter model:
 
-The pedagogical NumPy implementation has a separate training example:
+| Component | Value |
+| --- | ---: |
+| Layers | 6 |
+| Model dimension | 384 |
+| Attention heads | 6 |
+| Feed-forward dimension | 1,024 |
+| Context length | 256 |
+| Vocabulary | 1,024 |
+| Positional encoding | RoPE |
+| Activation | SwiGLU |
 
-```bash
-uv run python examples/numpy/train.py shakespeare
-```
-
-## Optional corpora
-
-TinyStories is downloaded rather than committed because it uses about 2.25 GB:
-
-```bash
-uv run python scripts/download_dataset.py tiny-stories
-```
-
-Then train with `recipes/tinygpt/tiny_stories.toml`.
-
-Discord exports can be converted into a private next-token corpus:
-
-```bash
-uv run python scripts/prepare_discord_dataset.py path/to/discord-exports \
-  --output datasets/discord/input.txt
-```
-
-Then train with `recipes/tinygpt/discord.toml`.
-See the [conversation training guide](chat_finetuning.md) for the full workflow.
-
-Generated datasets and checkpoints are ignored by Git.
-
-## Structure
+## Project structure
 
 ```text
-datasets/tiny_shakespeare/   Small tracked corpus
-examples/numpy/              Pedagogical NumPy training example
-purellm/numpy/               NumPy model and training primitives
-purellm/torchgpt/            PyTorch model and training primitives
-purellm/tokenization/        Shared tokenizers
-recipes/tinygpt/             Reproducible experiment configurations
-scripts/                     Training, generation, and corpus commands
+purellm/
+├── numpy/           # NumPy model and manual backpropagation
+├── torchgpt/        # PyTorch model, training, and generation
+└── tokenization/    # Character and BPE tokenizers
+
+recipes/             # Reproducible TOML experiment configurations
+scripts/             # Training, generation, and data preparation
+runs/                # Checkpoints, tokenizer caches, and experiment outputs
 ```
+
+## Scope
+
+PureLLM is a learning and experimentation project, not a pretrained foundation
+model or a replacement for Hugging Face Transformers.
+
+Its purpose is to understand what LLM frameworks abstract away, then measure
+the effect of selected PyTorch optimizations on a small, inspectable model.
+
+See the [roadmap](ROADMAP.md) for planned experiments and improvements.
