@@ -1,4 +1,6 @@
 import argparse
+import hashlib
+import json
 from pathlib import Path
 from time import perf_counter
 
@@ -32,6 +34,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("config", type=Path)
     parser.add_argument("--resume", type=Path)
+    parser.add_argument("--cache-tokenizer", action="store_true")
     return parser.parse_args()
 
 
@@ -71,19 +74,95 @@ def load_texts(config: DataConfig) -> tuple[str, str]:
     return training_text, validation_text
 
 
-def fit_tokenizer(text: str, config: DataConfig) -> TextTokenizer:
+def tokenizer_cache_path(
+    cache_directory: Path,
+    training_text: str,
+    config: DataConfig,
+) -> Path:
+    dataset_name = config.train_path.parent.name or config.train_path.stem
+    corpus_hash = hashlib.sha256(training_text.encode("utf-8")).hexdigest()[:12]
     if config.tokenizer == "character":
-        return CharacterTokenizer().fit(text)
+        filename = f"character-v1-{corpus_hash}.json"
+    else:
+        training_characters = config.tokenizer_training_characters or "all"
+        filename = (
+            f"bpe-v2-vocab{config.tokenizer_vocab_size}-"
+            f"chars{training_characters}-{corpus_hash}.json"
+        )
+    return cache_directory / dataset_name / filename
 
-    training_text = (
-        text
-        if config.tokenizer_training_characters is None
-        else text[: config.tokenizer_training_characters]
+
+def load_cached_tokenizer(path: Path, tokenizer_type: str) -> TextTokenizer:
+    if tokenizer_type == "bpe":
+        return BytePairTokenizer.load(path)
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if (
+        not isinstance(data, dict)
+        or data.get("type") != "character"
+        or data.get("version") != 1
+        or not isinstance(data.get("characters"), str)
+    ):
+        raise ValueError(f"invalid character tokenizer cache: {path}")
+    return CharacterTokenizer().fit(data["characters"])
+
+
+def save_cached_tokenizer(path: Path, tokenizer: TextTokenizer) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if isinstance(tokenizer, BytePairTokenizer):
+        tokenizer.save(path)
+        return
+
+    if not isinstance(tokenizer, CharacterTokenizer):
+        raise TypeError(f"unsupported tokenizer: {type(tokenizer).__name__}")
+    if tokenizer.id_to_char is None:
+        raise ValueError("tokenizer must be fitted before caching")
+    characters = "".join(
+        tokenizer.id_to_char[token_id] for token_id in range(tokenizer.vocab_size)
     )
-    return BytePairTokenizer().fit(
-        training_text,
-        vocab_size=config.tokenizer_vocab_size,
+    path.write_text(
+        json.dumps(
+            {"type": "character", "version": 1, "characters": characters},
+            indent=2,
+        ),
+        encoding="utf-8",
     )
+
+
+def fit_tokenizer(
+    text: str,
+    config: DataConfig,
+    cache_directory: Path | None = None,
+) -> TextTokenizer:
+    if config.tokenizer == "character":
+        training_text = text
+    else:
+        training_text = (
+            text
+            if config.tokenizer_training_characters is None
+            else text[: config.tokenizer_training_characters]
+        )
+
+    cache_path = None
+    if cache_directory is not None:
+        cache_path = tokenizer_cache_path(cache_directory, training_text, config)
+        if cache_path.is_file():
+            print(f"[tokenizer] cache hit | {cache_path}")
+            return load_cached_tokenizer(cache_path, config.tokenizer)
+
+    tokenizer: TextTokenizer
+    if config.tokenizer == "character":
+        tokenizer = CharacterTokenizer().fit(training_text)
+    else:
+        tokenizer = BytePairTokenizer().fit(
+            training_text,
+            vocab_size=config.tokenizer_vocab_size,
+        )
+
+    if cache_path is not None:
+        save_cached_tokenizer(cache_path, tokenizer)
+        print(f"[tokenizer] cache saved | {cache_path}")
+    return tokenizer
 
 
 def tokenizer_name(tokenizer: TextTokenizer) -> str:
@@ -257,9 +336,7 @@ def train_model(
                 or step == scheduler_config.total_steps
             )
             should_report = (
-                step == 1
-                or step % training_config.log_every == 0
-                or should_evaluate
+                step == 1 or step % training_config.log_every == 0 or should_evaluate
             )
             if should_report:
                 synchronize_device(device)
@@ -386,7 +463,7 @@ def print_training_intro(
         f"{tokenizer_name(tokenizer)} | vocab {tokenizer.vocab_size:,}"
     )
     if tokenizer_training_elapsed is not None:
-        tokenizer_description += f" | fitted in {tokenizer_training_elapsed:.2f}s"
+        tokenizer_description += f" | prepared in {tokenizer_training_elapsed:.2f}s"
 
     if scheduler_config.warmup_steps:
         scheduler_description = (
@@ -446,14 +523,20 @@ def main() -> None:
             raise ValueError("bf16 training is currently only supported on CUDA or MPS")
         if device.type == "cuda" and not torch.cuda.is_bf16_supported():
             raise RuntimeError("this CUDA GPU does not support bfloat16")
-    autocast_dtype = (
-        torch.bfloat16 if training_config.precision == "bf16" else None
-    )
+    autocast_dtype = torch.bfloat16 if training_config.precision == "bf16" else None
 
     training_text, validation_text = load_texts(data_config)
     if args.resume is None:
         tokenizer_started_at = perf_counter()
-        tokenizer = fit_tokenizer(training_text, data_config)
+        tokenizer = fit_tokenizer(
+            training_text,
+            data_config,
+            cache_directory=(
+                config.output_dir.parent / "tokenizers"
+                if args.cache_tokenizer
+                else None
+            ),
+        )
         tokenizer_training_elapsed = perf_counter() - tokenizer_started_at
         model = TinyGPT(
             vocab_size=tokenizer.vocab_size,
@@ -467,6 +550,7 @@ def main() -> None:
             tie_embeddings=model_config.tie_embeddings,
             position_encoding=model_config.position_encoding,
         ).to(device)
+
         optimizer = torch.optim.AdamW(
             model.parameters(),
             lr=training_config.learning_rate,
@@ -530,9 +614,7 @@ def main() -> None:
     elif loaded_checkpoint.scheduler_config != scheduler_config:
         raise ValueError("checkpoint scheduler does not match the training config")
 
-    sample_prompt_ids = tokenizer.encode(validation_text)[
-        : min(16, model.ctx_length)
-    ]
+    sample_prompt_ids = tokenizer.encode(validation_text)[: min(16, model.ctx_length)]
     training_character_count = len(training_text)
     validation_character_count = len(validation_text)
     del training_text, validation_text

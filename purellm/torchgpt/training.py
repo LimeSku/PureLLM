@@ -25,6 +25,14 @@ def language_model_loss(
     )
 
 
+@torch.compile
+def compiled_training_forward(
+    model: TinyGPT,
+    token_ids: torch.Tensor,
+) -> torch.Tensor:
+    return model(token_ids, use_cache=False)
+
+
 def train_language_model_step(
     model: TinyGPT,
     optimizer: Optimizer,
@@ -46,7 +54,7 @@ def train_language_model_step(
         dtype=autocast_dtype,
         enabled=autocast_dtype is not None,
     ):
-        logits = model(x_batch)
+        logits = compiled_training_forward(model, x_batch)
         loss = language_model_loss(logits, y_batch)
 
     loss.backward()
