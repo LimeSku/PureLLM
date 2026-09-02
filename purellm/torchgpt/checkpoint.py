@@ -4,16 +4,11 @@ from typing import Any
 
 import torch
 from torch.optim import Optimizer
-from torch.optim.lr_scheduler import (
-    CosineAnnealingLR,
-    LinearLR,
-    LRScheduler,
-    SequentialLR,
-)
+from torch.optim.lr_scheduler import LRScheduler
 
 from purellm.tokenization import TextTokenizer, serialize_tokenizer, tokenizer_from_dict
 from purellm.torchgpt.model import TinyGPT
-from purellm.utils import _get_device_rng_state
+from purellm.torchgpt.training import SchedulerConfig, build_scheduler
 
 CHECKPOINT_FORMAT_VERSION = 2
 
@@ -27,50 +22,10 @@ class LoadedModelCheckpoint:
 
 
 @dataclass(frozen=True)
-class SchedulerConfig:
-    total_steps: int
-    warmup_steps: int
-    minimum_lr: float
-
-    def __post_init__(self) -> None:
-        if self.total_steps <= 0:
-            raise ValueError("total_steps must be positive")
-        if not 0 <= self.warmup_steps < self.total_steps:
-            raise ValueError("warmup_steps must be non-negative and below total_steps")
-        if self.minimum_lr < 0:
-            raise ValueError("minimum_lr must be non-negative")
-
-
-@dataclass(frozen=True)
 class LoadedTrainingCheckpoint(LoadedModelCheckpoint):
     optimizer: Optimizer
     scheduler: LRScheduler | None
     scheduler_config: SchedulerConfig | None
-
-
-def create_warmup_cosine_scheduler(
-    optimizer: Optimizer,
-    config: SchedulerConfig,
-) -> SequentialLR:
-    if config.warmup_steps == 0:
-        raise ValueError("warmup_steps must be positive for a warmup scheduler")
-
-    warmup_scheduler = LinearLR(
-        optimizer=optimizer,
-        start_factor=1 / config.warmup_steps,
-        end_factor=1.0,
-        total_iters=config.warmup_steps,
-    )
-    cosine_scheduler = CosineAnnealingLR(
-        optimizer=optimizer,
-        T_max=config.total_steps - config.warmup_steps,
-        eta_min=config.minimum_lr,
-    )
-    return SequentialLR(
-        optimizer=optimizer,
-        schedulers=[warmup_scheduler, cosine_scheduler],
-        milestones=[config.warmup_steps],
-    )
 
 
 def save_training_checkpoint(
@@ -174,19 +129,12 @@ def _load_scheduler(
         return None
     if not isinstance(scheduler_state, dict):
         raise ValueError("invalid scheduler state in checkpoint")
+    if config is None:
+        raise ValueError("scheduler checkpoint has no scheduler configuration")
 
     optimizer_learning_rates = [group["lr"] for group in optimizer.param_groups]
-    if scheduler_type == "CosineAnnealingLR":
-        scheduler: LRScheduler = CosineAnnealingLR(
-            optimizer=optimizer,
-            T_max=scheduler_state["T_max"],
-            eta_min=scheduler_state["eta_min"],
-        )
-    elif scheduler_type == "SequentialLR":
-        if config is None:
-            raise ValueError("SequentialLR checkpoint has no scheduler configuration")
-        scheduler = create_warmup_cosine_scheduler(optimizer, config)
-    else:
+    scheduler = build_scheduler(optimizer, config)
+    if type(scheduler).__name__ != scheduler_type:
         raise ValueError(f"unsupported scheduler: {scheduler_type!r}")
 
     scheduler.load_state_dict(scheduler_state)
@@ -250,13 +198,6 @@ def _load_checkpoint_payload(
             "unsupported checkpoint format version: "
             f"{checkpoint.get('format_version')!r}"
         )
-    if checkpoint.get("tokenizer_type") not in (
-        "character",
-        "byte_pair",
-        "tiktoken",
-        "tiktoken_byte_pair",
-    ):
-        raise ValueError(f"unsupported tokenizer: {checkpoint.get('tokenizer_type')!r}")
 
     return checkpoint
 
@@ -299,6 +240,14 @@ def _load_tokenizer(checkpoint: dict[str, Any]) -> TextTokenizer:
             "encoding": tokenizer_config,
         })
     raise ValueError("invalid tokenizer config in checkpoint")
+
+
+def _get_device_rng_state(device: torch.device) -> torch.Tensor | None:
+    if device.type == "cuda":
+        return torch.cuda.get_rng_state(device)
+    if device.type == "mps":
+        return torch.mps.get_rng_state()
+    return None
 
 
 def _set_device_rng_state(

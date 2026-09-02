@@ -5,23 +5,24 @@ from time import perf_counter
 
 import torch
 from torch.optim import Optimizer
-from torch.optim.lr_scheduler import CosineAnnealingLR, LRScheduler
+from torch.optim.lr_scheduler import LRScheduler
 
-from purellm.config import DataConfig, ExperimentConfig, TinyGPTConfig, load_config
+from purellm.config import ExperimentConfig, TinyGPTConfig, load_config
+from purellm.dataset import load_texts
 from purellm.tokenization import (
     TextTokenizer,
     resolve_tokenizer,
     validate_tokenizer,
 )
 from purellm.torchgpt.checkpoint import (
-    SchedulerConfig,
-    create_warmup_cosine_scheduler,
     load_training_checkpoint,
     save_training_checkpoint,
 )
 from purellm.torchgpt.generation import generate
 from purellm.torchgpt.model import TinyGPT
 from purellm.torchgpt.training import (
+    SchedulerConfig,
+    build_scheduler,
     language_model_loss,
     train_language_model_step,
 )
@@ -32,42 +33,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("config", type=Path)
     parser.add_argument("--resume", type=Path)
     return parser.parse_args()
-
-
-def read_text(path: Path, max_characters: int | None = None) -> str:
-    if not path.is_file():
-        raise FileNotFoundError(f"dataset file not found: {path}")
-
-    with path.open(encoding="utf-8") as file:
-        return file.read(max_characters)
-
-
-def load_texts(config: DataConfig) -> tuple[str, str]:
-    if config.validation_path is not None:
-        training_text = read_text(config.train_path, config.max_train_characters)
-        validation_text = read_text(
-            config.validation_path,
-            config.max_validation_characters,
-        )
-    else:
-        text = read_text(config.train_path)
-        validation_fraction = config.validation_fraction
-        if validation_fraction is None:
-            raise ValueError(
-                "data.validation_fraction is required without validation_path"
-            )
-
-        split_index = int(len(text) * (1 - validation_fraction))
-        training_text = text[:split_index]
-        validation_text = text[split_index:]
-        if config.max_train_characters is not None:
-            training_text = training_text[: config.max_train_characters]
-        if config.max_validation_characters is not None:
-            validation_text = validation_text[: config.max_validation_characters]
-
-    if not training_text or not validation_text:
-        raise ValueError("training and validation data must not be empty")
-    return training_text, validation_text
 
 
 def encode_text(
@@ -125,19 +90,6 @@ def synchronize_device(device: torch.device) -> None:
         torch.cuda.synchronize(device)
     elif device.type == "mps":
         torch.mps.synchronize()
-
-
-def build_scheduler(
-    optimizer: Optimizer,
-    config: SchedulerConfig,
-) -> LRScheduler:
-    if config.warmup_steps == 0:
-        return CosineAnnealingLR(
-            optimizer=optimizer,
-            T_max=config.total_steps,
-            eta_min=config.minimum_lr,
-        )
-    return create_warmup_cosine_scheduler(optimizer, config)
 
 
 def create_run_directory(output_dir: Path) -> Path:

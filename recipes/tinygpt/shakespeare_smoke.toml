@@ -30,7 +30,7 @@ eval_batches = 2
 save_every = 20
 
 [tokenizer]
-type = "gpt2"
+type = "character"
 
 [data]
 train_path = "datasets/tiny_shakespeare/input.txt"

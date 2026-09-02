@@ -1,8 +1,55 @@
+from dataclasses import dataclass
+
 import torch
 from torch.nn import functional as F
 from torch.optim import Optimizer
+from torch.optim.lr_scheduler import (
+    CosineAnnealingLR,
+    LinearLR,
+    LRScheduler,
+    SequentialLR,
+)
 
 from purellm.torchgpt.model import TinyGPT
+
+
+@dataclass(frozen=True)
+class SchedulerConfig:
+    total_steps: int
+    warmup_steps: int
+    minimum_lr: float
+
+    def __post_init__(self) -> None:
+        if self.total_steps <= 0:
+            raise ValueError("total_steps must be positive")
+        if not 0 <= self.warmup_steps < self.total_steps:
+            raise ValueError("warmup_steps must be non-negative and below total_steps")
+        if self.minimum_lr < 0:
+            raise ValueError("minimum_lr must be non-negative")
+
+
+def build_scheduler(
+    optimizer: Optimizer,
+    config: SchedulerConfig,
+) -> LRScheduler:
+    cosine = CosineAnnealingLR(
+        optimizer,
+        T_max=config.total_steps - config.warmup_steps,
+        eta_min=config.minimum_lr,
+    )
+    if config.warmup_steps == 0:
+        return cosine
+
+    warmup = LinearLR(
+        optimizer,
+        start_factor=1 / config.warmup_steps,
+        total_iters=config.warmup_steps,
+    )
+    return SequentialLR(
+        optimizer,
+        schedulers=[warmup, cosine],
+        milestones=[config.warmup_steps],
+    )
 
 
 def language_model_loss(
