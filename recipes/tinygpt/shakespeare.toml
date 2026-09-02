@@ -32,4 +32,4 @@ save_every = 500
 [data]
 train_path = "datasets/tiny_shakespeare/input.txt"
 validation_fraction = 0.1
-tokenizer = "character"
+tokenizer = "character" #"tiktoken_bpe"

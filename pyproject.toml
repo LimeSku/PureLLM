@@ -6,8 +6,12 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "numpy>=2.5.0",
+    "tiktoken>=0.14.0",
     "torch>=2.13.0",
 ]
+[project.scripts]
+download = "scripts:download_dataset.main"
+
 [tool.uv.sources]
 torch = [
     { index = "pytorch-cu130", marker = "sys_platform == 'win32'" },

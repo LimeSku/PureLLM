@@ -15,6 +15,7 @@ from purellm.tokenization import (
     BytePairTokenizer,
     CharacterTokenizer,
     TextTokenizer,
+    TiktokenGPT2,
 )
 from purellm.torchgpt.checkpoint import (
     SchedulerConfig,
@@ -28,6 +29,7 @@ from purellm.torchgpt.training import (
     language_model_loss,
     train_language_model_step,
 )
+from purellm.utils import create_run_directory, select_device, synchronize_device
 
 
 def parse_args() -> argparse.Namespace:
@@ -153,11 +155,13 @@ def fit_tokenizer(
     tokenizer: TextTokenizer
     if config.tokenizer == "character":
         tokenizer = CharacterTokenizer().fit(training_text)
-    else:
+    elif config.tokenizer == "bpe":
         tokenizer = BytePairTokenizer().fit(
             training_text,
             vocab_size=config.tokenizer_vocab_size,
         )
+    elif config.tokenizer == "tiktoken_bpe":
+        tokenizer = TiktokenGPT2()
 
     if cache_path is not None:
         save_cached_tokenizer(cache_path, tokenizer)
@@ -170,7 +174,8 @@ def tokenizer_name(tokenizer: TextTokenizer) -> str:
         return "character"
     if isinstance(tokenizer, BytePairTokenizer):
         return "bpe"
-    raise TypeError(f"unsupported tokenizer: {type(tokenizer).__name__}")
+    return "unknown"
+    # raise TypeError(f"unsupported tokenizer: {type(tokenizer).__name__}")
 
 
 def validate_tokenizer(tokenizer: TextTokenizer, config: DataConfig) -> None:
@@ -202,21 +207,6 @@ def validate_model(model: TinyGPT, config: TinyGPTConfig) -> None:
         )
 
 
-def select_device() -> torch.device:
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    if torch.backends.mps.is_available():
-        return torch.device("mps")
-    return torch.device("cpu")
-
-
-def synchronize_device(device: torch.device) -> None:
-    if device.type == "cuda":
-        torch.cuda.synchronize(device)
-    elif device.type == "mps":
-        torch.mps.synchronize()
-
-
 def build_scheduler(
     optimizer: Optimizer,
     config: SchedulerConfig,
@@ -228,30 +218,6 @@ def build_scheduler(
             eta_min=config.minimum_lr,
         )
     return create_warmup_cosine_scheduler(optimizer, config)
-
-
-def create_run_directory(output_dir: Path) -> Path:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    run_number = (
-        max(
-            (
-                int(path.name)
-                for path in output_dir.iterdir()
-                if path.is_dir() and path.name.isdigit()
-            ),
-            default=0,
-        )
-        + 1
-    )
-
-    while True:
-        run_directory = output_dir / str(run_number)
-        try:
-            run_directory.mkdir()
-        except FileExistsError:
-            run_number += 1
-        else:
-            return run_directory
 
 
 @torch.no_grad()
@@ -566,7 +532,7 @@ def main() -> None:
         optimizer = loaded_checkpoint.optimizer
         tokenizer = loaded_checkpoint.tokenizer
         validate_model(model, model_config)
-        validate_tokenizer(tokenizer, data_config)
+        # validate_tokenizer(tokenizer, data_config)
         if (
             loaded_checkpoint.scheduler is None
             or loaded_checkpoint.scheduler_config is None

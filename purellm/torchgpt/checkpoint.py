@@ -15,8 +15,10 @@ from purellm.tokenization import (
     BytePairTokenizer,
     CharacterTokenizer,
     TextTokenizer,
+    TiktokenGPT2,
 )
 from purellm.torchgpt.model import TinyGPT
+from purellm.utils import _get_device_rng_state
 
 CHECKPOINT_FORMAT_VERSION = 1
 
@@ -146,6 +148,12 @@ def _serialize_tokenizer(tokenizer: TextTokenizer) -> dict[str, Any]:
         return {
             "tokenizer_type": "byte_pair",
             "tokenizer_config": tokenizer.to_dict(),
+        }
+
+    if isinstance(tokenizer, TiktokenGPT2):
+        return {
+            "tokenizer_type": "tiktoken_byte_pair",
+            "tokenizer_config": "gpt2",
         }
 
     raise TypeError(f"unsupported tokenizer: {type(tokenizer).__name__}")
@@ -304,14 +312,6 @@ def _load_tokenizer(checkpoint: dict[str, Any]) -> TextTokenizer:
     if not isinstance(tokenizer_config, dict):
         raise ValueError("invalid byte-pair tokenizer config in checkpoint")
     return BytePairTokenizer.from_dict(tokenizer_config)
-
-
-def _get_device_rng_state(device: torch.device) -> torch.Tensor | None:
-    if device.type == "cuda":
-        return torch.cuda.get_rng_state(device)
-    if device.type == "mps":
-        return torch.mps.get_rng_state()
-    return None
 
 
 def _set_device_rng_state(
