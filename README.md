@@ -25,12 +25,10 @@ uv sync
 uv run python scripts/train.py recipes/tinygpt/shakespeare_smoke.toml
 ```
 
-Train the TinyStories model and cache the prepared tokenizer:
+Train the TinyStories model (fitted tokenizers are cached automatically):
 
 ```bash
-uv run python scripts/train.py \
-  recipes/tinygpt/tiny_stories.toml \
-  --cache-tokenizer
+uv run python scripts/train.py recipes/tinygpt/tiny_stories.toml
 ```
 
 ## Implementations

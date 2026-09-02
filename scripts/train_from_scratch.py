@@ -9,9 +9,9 @@ from torch.optim.lr_scheduler import CosineAnnealingLR, LRScheduler
 
 from purellm.config import DataConfig, ExperimentConfig, TinyGPTConfig, load_config
 from purellm.tokenization import (
-    BytePairTokenizer,
-    CharacterTokenizer,
     TextTokenizer,
+    resolve_tokenizer,
+    validate_tokenizer,
 )
 from purellm.torchgpt.checkpoint import (
     SchedulerConfig,
@@ -86,34 +86,6 @@ def encode_text(
         ) from error
 
     return torch.tensor(encoded_text, dtype=torch.long, device=device)
-
-
-def fit_tokenizer(text: str, config: DataConfig) -> TextTokenizer:
-    if config.tokenizer == "character":
-        return CharacterTokenizer().fit(text)
-
-    training_text = (
-        text
-        if config.tokenizer_training_characters is None
-        else text[: config.tokenizer_training_characters]
-    )
-    return BytePairTokenizer().fit(
-        training_text,
-        vocab_size=config.tokenizer_vocab_size,
-    )
-
-
-def tokenizer_name(tokenizer: TextTokenizer) -> str:
-    if isinstance(tokenizer, CharacterTokenizer):
-        return "character"
-    if isinstance(tokenizer, BytePairTokenizer):
-        return "bpe"
-    raise TypeError(f"unsupported tokenizer: {type(tokenizer).__name__}")
-
-
-def validate_tokenizer(tokenizer: TextTokenizer, config: DataConfig) -> None:
-    if tokenizer_name(tokenizer) != config.tokenizer:
-        raise ValueError("checkpoint tokenizer does not match the data config")
 
 
 def validate_model(model: TinyGPT, config: TinyGPTConfig) -> None:
@@ -406,7 +378,7 @@ def print_training_intro(
     optimizer: Optimizer,
     scheduler_config: SchedulerConfig,
     tokenizer: TextTokenizer,
-    tokenizer_training_elapsed: float | None,
+    tokenizer_preparation_elapsed: float | None,
     training_character_count: int,
     validation_character_count: int,
     training_token_count: int,
@@ -415,11 +387,9 @@ def print_training_intro(
     start_step: int,
 ) -> None:
     parameter_count = sum(parameter.numel() for parameter in model.parameters())
-    tokenizer_description = (
-        f"{tokenizer_name(tokenizer)} | vocab {tokenizer.vocab_size:,}"
-    )
-    if tokenizer_training_elapsed is not None:
-        tokenizer_description += f" | fitted in {tokenizer_training_elapsed:.2f}s"
+    tokenizer_description = f"{tokenizer.name} | vocab {tokenizer.vocab_size:,}"
+    if tokenizer_preparation_elapsed is not None:
+        tokenizer_description += f" | prepared in {tokenizer_preparation_elapsed:.2f}s"
 
     if scheduler_config.warmup_steps:
         scheduler_description = (
@@ -469,6 +439,7 @@ def main() -> None:
     args = parse_args()
     config = load_config(args.config)
     model_config = config.model
+    tokenizer_config = config.tokenizer
     training_config = config.training
     data_config = config.data
 
@@ -486,8 +457,12 @@ def main() -> None:
     training_text, validation_text = load_texts(data_config)
     if args.resume is None:
         tokenizer_started_at = perf_counter()
-        tokenizer = fit_tokenizer(training_text, data_config)
-        tokenizer_training_elapsed = perf_counter() - tokenizer_started_at
+        tokenizer = resolve_tokenizer(
+            training_text,
+            tokenizer_config,
+            cache_directory=config.output_dir.parent / "tokenizers",
+        )
+        tokenizer_preparation_elapsed = perf_counter() - tokenizer_started_at
         model = TinyGPT(
             vocab_size=tokenizer.vocab_size,
             ctx_length=model_config.context_length,
@@ -509,13 +484,13 @@ def main() -> None:
         start_step = 1
         best_validation_loss = float("inf")
     else:
-        tokenizer_training_elapsed = None
+        tokenizer_preparation_elapsed = None
         loaded_checkpoint = load_training_checkpoint(args.resume, device=device)
         model = loaded_checkpoint.model
         optimizer = loaded_checkpoint.optimizer
         tokenizer = loaded_checkpoint.tokenizer
         validate_model(model, model_config)
-        validate_tokenizer(tokenizer, data_config)
+        validate_tokenizer(tokenizer, tokenizer_config)
         if (
             loaded_checkpoint.scheduler is None
             or loaded_checkpoint.scheduler_config is None
@@ -570,7 +545,7 @@ def main() -> None:
         optimizer=optimizer,
         scheduler_config=scheduler_config,
         tokenizer=tokenizer,
-        tokenizer_training_elapsed=tokenizer_training_elapsed,
+        tokenizer_preparation_elapsed=tokenizer_preparation_elapsed,
         training_character_count=training_character_count,
         validation_character_count=validation_character_count,
         training_token_count=len(train_token_ids),

@@ -30,7 +30,12 @@ def merge_pair(
 
 
 class BytePairTokenizer:
-    def __init__(self) -> None:
+    name = "bpe"
+
+    def __init__(self, target_vocab_size: int) -> None:
+        if target_vocab_size < 256:
+            raise ValueError("target_vocab_size must be at least 256")
+        self.target_vocab_size = target_vocab_size
         self.merges: list[tuple[int, int]] = []
         self.token_bytes: dict[int, bytes] = {
             token_id: bytes([token_id]) for token_id in range(256)
@@ -39,10 +44,7 @@ class BytePairTokenizer:
         self.vocab_size = 256
         self.pretokenization: Pretokenization = "whitespace"
 
-    def fit(self, text: str, vocab_size: int) -> "BytePairTokenizer":
-        if vocab_size < 256:
-            raise ValueError("vocab_size must be at least 256")
-
+    def fit(self, text: str) -> "BytePairTokenizer":
         self.merges = []
         self.token_bytes = {token_id: bytes([token_id]) for token_id in range(256)}
         self._merge_ranks = {}
@@ -56,7 +58,7 @@ class BytePairTokenizer:
             {tuple(piece): count for piece, count in piece_counts.items()}
         )
 
-        while self.vocab_size < vocab_size:
+        while self.vocab_size < self.target_vocab_size:
             pair_counts: Counter[tuple[int, int]] = Counter()
             for token_ids, count in sequences.items():
                 for index in range(len(token_ids) - 1):
@@ -166,7 +168,10 @@ class BytePairTokenizer:
         if version not in (1, 2):
             raise ValueError(f"unsupported byte-pair tokenizer version: {version!r}")
 
-        tokenizer = cls()
+        serialized_merges = data.get("merges")
+        if not isinstance(serialized_merges, list):
+            raise ValueError("invalid byte-pair merges")
+        tokenizer = cls(256 + len(serialized_merges))
         if version == 1:
             tokenizer.pretokenization = "none"
         else:
@@ -175,7 +180,7 @@ class BytePairTokenizer:
                 raise ValueError(f"unsupported pretokenization: {pretokenization!r}")
             tokenizer.pretokenization = pretokenization
 
-        for serialized_pair in data["merges"]:
+        for serialized_pair in serialized_merges:
             if not isinstance(serialized_pair, list) or len(serialized_pair) != 2:
                 raise ValueError(f"invalid byte-pair merge: {serialized_pair!r}")
             left, right = serialized_pair

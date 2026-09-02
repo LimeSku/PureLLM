@@ -1,9 +1,12 @@
 import string
+from typing import Any
 
 DEFAULT_CHARACTERS = string.ascii_letters + string.digits + string.punctuation + " \n"
 
 
 class CharacterTokenizer:
+    name = "character"
+
     def __init__(self) -> None:
         self.char_to_id: dict[str, int] | None = None
         self.id_to_char: dict[int, str] | None = None
@@ -25,6 +28,26 @@ class CharacterTokenizer:
         if self.id_to_char is None:
             raise ValueError("Tokenizer not trained yet")
         return "".join(self.id_to_char[token_id] for token_id in ids)
+
+    def to_dict(self) -> dict[str, Any]:
+        if self.id_to_char is None:
+            raise ValueError("tokenizer must be fitted before serialization")
+        return {
+            "type": "character",
+            "version": 1,
+            "characters": "".join(
+                self.id_to_char[token_id] for token_id in range(self.vocab_size)
+            ),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "CharacterTokenizer":
+        if data.get("type") != "character" or data.get("version") != 1:
+            raise ValueError("invalid character tokenizer config")
+        characters = data.get("characters")
+        if not isinstance(characters, str):
+            raise ValueError("invalid character tokenizer characters")
+        return cls().fit(characters)
 
 
 if __name__ == "__main__":
