@@ -29,9 +29,11 @@ eval_every = 250
 eval_batches = 10
 save_every = 500
 
+[tokenizer]
+type = "bpe"
+vocab_size = 1024
+max_fit_characters = 1000000
+
 [data]
 train_path = "datasets/discord/input.txt"
 validation_fraction = 0.05
-tokenizer = "bpe"
-tokenizer_vocab_size = 1024
-tokenizer_training_characters = 1000000

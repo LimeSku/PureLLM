@@ -27,14 +27,6 @@ def create_run_directory(output_dir: Path) -> Path:
             return run_directory
 
 
-def _get_device_rng_state(device: torch.device) -> torch.Tensor | None:
-    if device.type == "cuda":
-        return torch.cuda.get_rng_state(device)
-    if device.type == "mps":
-        return torch.mps.get_rng_state()
-    return None
-
-
 def select_device() -> torch.device:
     if torch.cuda.is_available():
         return torch.device("cuda")

@@ -29,11 +29,13 @@ eval_every = 250
 eval_batches = 20
 save_every = 1000
 
+[tokenizer]
+type = "bpe"
+vocab_size = 1024
+max_fit_characters = 1000000
+
 [data]
 train_path = "datasets/tiny_stories/train.txt"
 validation_path = "datasets/tiny_stories/validation.txt"
-tokenizer = "bpe"
-tokenizer_vocab_size = 1024
-tokenizer_training_characters = 1000000
 max_train_characters = 20000000
 max_validation_characters = 1000000

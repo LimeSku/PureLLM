@@ -1,5 +1,9 @@
+from pathlib import Path
+
 import torch
 from torch.utils.data import DataLoader, Dataset
+
+from purellm.config import DataConfig
 
 
 class LLMDataset(Dataset):
@@ -56,3 +60,39 @@ def create_dataloader(
     )
 
     return dataloader
+
+
+def read_text(path: Path, max_characters: int | None = None) -> str:
+    if not path.is_file():
+        raise FileNotFoundError(f"dataset file not found: {path}")
+
+    with path.open(encoding="utf-8") as file:
+        return file.read(max_characters)
+
+
+def load_texts(config: DataConfig) -> tuple[str, str]:
+    if config.validation_path is not None:
+        training_text = read_text(config.train_path, config.max_train_characters)
+        validation_text = read_text(
+            config.validation_path,
+            config.max_validation_characters,
+        )
+    else:
+        text = read_text(config.train_path)
+        validation_fraction = config.validation_fraction
+        if validation_fraction is None:
+            raise ValueError(
+                "data.validation_fraction is required without validation_path"
+            )
+
+        split_index = int(len(text) * (1 - validation_fraction))
+        training_text = text[:split_index]
+        validation_text = text[split_index:]
+        if config.max_train_characters is not None:
+            training_text = training_text[: config.max_train_characters]
+        if config.max_validation_characters is not None:
+            validation_text = validation_text[: config.max_validation_characters]
+
+    if not training_text or not validation_text:
+        raise ValueError("training and validation data must not be empty")
+    return training_text, validation_text

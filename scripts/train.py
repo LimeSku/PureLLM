@@ -1,31 +1,34 @@
 import argparse
-import hashlib
-import json
 from pathlib import Path
 from time import perf_counter
 
 import torch
 from torch.optim import Optimizer
-from torch.optim.lr_scheduler import CosineAnnealingLR, LRScheduler
+from torch.optim.lr_scheduler import (
+    LRScheduler,
+)
 from torch.utils.data import DataLoader
 
-from purellm.config import DataConfig, ExperimentConfig, TinyGPTConfig, load_config
-from purellm.dataset import create_dataloader
+from purellm.config import (
+    ExperimentConfig,
+    TinyGPTConfig,
+    load_config,
+)
+from purellm.dataset import create_dataloader, load_texts
 from purellm.tokenization import (
-    BytePairTokenizer,
-    CharacterTokenizer,
     TextTokenizer,
-    TiktokenGPT2,
+    resolve_tokenizer,
+    validate_tokenizer,
 )
 from purellm.torchgpt.checkpoint import (
-    SchedulerConfig,
-    create_warmup_cosine_scheduler,
     load_training_checkpoint,
     save_training_checkpoint,
 )
 from purellm.torchgpt.generation import generate
 from purellm.torchgpt.model import TinyGPT
 from purellm.torchgpt.training import (
+    SchedulerConfig,
+    build_scheduler,
     language_model_loss,
     train_language_model_step,
 )
@@ -36,151 +39,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("config", type=Path)
     parser.add_argument("--resume", type=Path)
-    parser.add_argument("--cache-tokenizer", action="store_true")
     return parser.parse_args()
-
-
-def read_text(path: Path, max_characters: int | None = None) -> str:
-    if not path.is_file():
-        raise FileNotFoundError(f"dataset file not found: {path}")
-
-    with path.open(encoding="utf-8") as file:
-        return file.read(max_characters)
-
-
-def load_texts(config: DataConfig) -> tuple[str, str]:
-    if config.validation_path is not None:
-        training_text = read_text(config.train_path, config.max_train_characters)
-        validation_text = read_text(
-            config.validation_path,
-            config.max_validation_characters,
-        )
-    else:
-        text = read_text(config.train_path)
-        validation_fraction = config.validation_fraction
-        if validation_fraction is None:
-            raise ValueError(
-                "data.validation_fraction is required without validation_path"
-            )
-
-        split_index = int(len(text) * (1 - validation_fraction))
-        training_text = text[:split_index]
-        validation_text = text[split_index:]
-        if config.max_train_characters is not None:
-            training_text = training_text[: config.max_train_characters]
-        if config.max_validation_characters is not None:
-            validation_text = validation_text[: config.max_validation_characters]
-
-    if not training_text or not validation_text:
-        raise ValueError("training and validation data must not be empty")
-    return training_text, validation_text
-
-
-def tokenizer_cache_path(
-    cache_directory: Path,
-    training_text: str,
-    config: DataConfig,
-) -> Path:
-    dataset_name = config.train_path.parent.name or config.train_path.stem
-    corpus_hash = hashlib.sha256(training_text.encode("utf-8")).hexdigest()[:12]
-    if config.tokenizer == "character":
-        filename = f"character-v1-{corpus_hash}.json"
-    else:
-        training_characters = config.tokenizer_training_characters or "all"
-        filename = (
-            f"bpe-v2-vocab{config.tokenizer_vocab_size}-"
-            f"chars{training_characters}-{corpus_hash}.json"
-        )
-    return cache_directory / dataset_name / filename
-
-
-def load_cached_tokenizer(path: Path, tokenizer_type: str) -> TextTokenizer:
-    if tokenizer_type == "bpe":
-        return BytePairTokenizer.load(path)
-
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if (
-        not isinstance(data, dict)
-        or data.get("type") != "character"
-        or data.get("version") != 1
-        or not isinstance(data.get("characters"), str)
-    ):
-        raise ValueError(f"invalid character tokenizer cache: {path}")
-    return CharacterTokenizer().fit(data["characters"])
-
-
-def save_cached_tokenizer(path: Path, tokenizer: TextTokenizer) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if isinstance(tokenizer, BytePairTokenizer):
-        tokenizer.save(path)
-        return
-
-    if not isinstance(tokenizer, CharacterTokenizer):
-        raise TypeError(f"unsupported tokenizer: {type(tokenizer).__name__}")
-    if tokenizer.id_to_char is None:
-        raise ValueError("tokenizer must be fitted before caching")
-    characters = "".join(
-        tokenizer.id_to_char[token_id] for token_id in range(tokenizer.vocab_size)
-    )
-    path.write_text(
-        json.dumps(
-            {"type": "character", "version": 1, "characters": characters},
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-
-
-def fit_tokenizer(
-    text: str,
-    config: DataConfig,
-    cache_directory: Path | None = None,
-) -> TextTokenizer:
-    if config.tokenizer == "character":
-        training_text = text
-    else:
-        training_text = (
-            text
-            if config.tokenizer_training_characters is None
-            else text[: config.tokenizer_training_characters]
-        )
-
-    cache_path = None
-    if cache_directory is not None:
-        cache_path = tokenizer_cache_path(cache_directory, training_text, config)
-        if cache_path.is_file():
-            print(f"[tokenizer] cache hit | {cache_path}")
-            return load_cached_tokenizer(cache_path, config.tokenizer)
-
-    tokenizer: TextTokenizer
-    if config.tokenizer == "character":
-        tokenizer = CharacterTokenizer().fit(training_text)
-    elif config.tokenizer == "bpe":
-        tokenizer = BytePairTokenizer().fit(
-            training_text,
-            vocab_size=config.tokenizer_vocab_size,
-        )
-    elif config.tokenizer == "tiktoken_bpe":
-        tokenizer = TiktokenGPT2()
-
-    if cache_path is not None:
-        save_cached_tokenizer(cache_path, tokenizer)
-        print(f"[tokenizer] cache saved | {cache_path}")
-    return tokenizer
-
-
-def tokenizer_name(tokenizer: TextTokenizer) -> str:
-    if isinstance(tokenizer, CharacterTokenizer):
-        return "character"
-    if isinstance(tokenizer, BytePairTokenizer):
-        return "bpe"
-    return "unknown"
-    # raise TypeError(f"unsupported tokenizer: {type(tokenizer).__name__}")
-
-
-def validate_tokenizer(tokenizer: TextTokenizer, config: DataConfig) -> None:
-    if tokenizer_name(tokenizer) != config.tokenizer:
-        raise ValueError("checkpoint tokenizer does not match the data config")
 
 
 def validate_model(model: TinyGPT, config: TinyGPTConfig) -> None:
@@ -205,19 +64,6 @@ def validate_model(model: TinyGPT, config: TinyGPTConfig) -> None:
             "checkpoint model does not match the config fields: "
             + ", ".join(mismatches)
         )
-
-
-def build_scheduler(
-    optimizer: Optimizer,
-    config: SchedulerConfig,
-) -> LRScheduler:
-    if config.warmup_steps == 0:
-        return CosineAnnealingLR(
-            optimizer=optimizer,
-            T_max=config.total_steps,
-            eta_min=config.minimum_lr,
-        )
-    return create_warmup_cosine_scheduler(optimizer, config)
 
 
 @torch.no_grad()
@@ -416,7 +262,7 @@ def print_training_intro(
     optimizer: Optimizer,
     scheduler_config: SchedulerConfig,
     tokenizer: TextTokenizer,
-    tokenizer_training_elapsed: float | None,
+    tokenizer_preparation_elapsed: float | None,
     training_character_count: int,
     validation_character_count: int,
     training_sequence_count: int,
@@ -425,11 +271,9 @@ def print_training_intro(
     start_step: int,
 ) -> None:
     parameter_count = sum(parameter.numel() for parameter in model.parameters())
-    tokenizer_description = (
-        f"{tokenizer_name(tokenizer)} | vocab {tokenizer.vocab_size:,}"
-    )
-    if tokenizer_training_elapsed is not None:
-        tokenizer_description += f" | prepared in {tokenizer_training_elapsed:.2f}s"
+    tokenizer_description = f"{tokenizer.name} | vocab {tokenizer.vocab_size:,}"
+    if tokenizer_preparation_elapsed is not None:
+        tokenizer_description += f" | prepared in {tokenizer_preparation_elapsed:.2f}s"
 
     if scheduler_config.warmup_steps:
         scheduler_description = (
@@ -479,6 +323,7 @@ def main() -> None:
     args = parse_args()
     config = load_config(args.config)
     model_config = config.model
+    tokenizer_config = config.tokenizer
     training_config = config.training
     data_config = config.data
 
@@ -494,16 +339,12 @@ def main() -> None:
     training_text, validation_text = load_texts(data_config)
     if args.resume is None:
         tokenizer_started_at = perf_counter()
-        tokenizer = fit_tokenizer(
+        tokenizer = resolve_tokenizer(
             training_text,
-            data_config,
-            cache_directory=(
-                config.output_dir.parent / "tokenizers"
-                if args.cache_tokenizer
-                else None
-            ),
+            tokenizer_config,
+            cache_directory=config.output_dir.parent / "tokenizers",
         )
-        tokenizer_training_elapsed = perf_counter() - tokenizer_started_at
+        tokenizer_preparation_elapsed = perf_counter() - tokenizer_started_at
         model = TinyGPT(
             vocab_size=tokenizer.vocab_size,
             ctx_length=model_config.context_length,
@@ -526,13 +367,13 @@ def main() -> None:
         start_step = 1
         best_validation_loss = float("inf")
     else:
-        tokenizer_training_elapsed = None
+        tokenizer_preparation_elapsed = None
         loaded_checkpoint = load_training_checkpoint(args.resume, device=device)
         model = loaded_checkpoint.model
         optimizer = loaded_checkpoint.optimizer
         tokenizer = loaded_checkpoint.tokenizer
         validate_model(model, model_config)
-        # validate_tokenizer(tokenizer, data_config)
+        validate_tokenizer(tokenizer, tokenizer_config)
         if (
             loaded_checkpoint.scheduler is None
             or loaded_checkpoint.scheduler_config is None
@@ -603,7 +444,7 @@ def main() -> None:
         optimizer=optimizer,
         scheduler_config=scheduler_config,
         tokenizer=tokenizer,
-        tokenizer_training_elapsed=tokenizer_training_elapsed,
+        tokenizer_preparation_elapsed=tokenizer_preparation_elapsed,
         training_character_count=training_character_count,
         validation_character_count=validation_character_count,
         training_sequence_count=len(training_loader.dataset),

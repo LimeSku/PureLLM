@@ -116,7 +116,7 @@ def main() -> None:
             )
         ctx_length = model.ctx_length
     else:
-        tokenizer = BytePairTokenizer().fit(train_text, vocab_size=512)
+        tokenizer = BytePairTokenizer(512).fit(train_text)
 
         model = TinyGPT(
             vocab_size=tokenizer.vocab_size,

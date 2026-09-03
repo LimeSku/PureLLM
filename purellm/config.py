@@ -93,9 +93,6 @@ class DataConfig:
     train_path: Path
     validation_path: Path | None = None
     validation_fraction: float | None = 0.1
-    tokenizer: Literal["character", "bpe"] = "character"
-    tokenizer_vocab_size: int = 1_024
-    tokenizer_training_characters: int | None = 1_000_000
     max_train_characters: int | None = None
     max_validation_characters: int | None = None
 
@@ -109,12 +106,7 @@ class DataConfig:
             and not 0 < self.validation_fraction < 1
         ):
             raise ValueError("data.validation_fraction must be between 0 and 1")
-        if self.tokenizer not in ("character", "bpe"):
-            raise ValueError(f"unsupported data.tokenizer: {self.tokenizer!r}")
-        if self.tokenizer_vocab_size < 256:
-            raise ValueError("data.tokenizer_vocab_size must be at least 256")
         for name in (
-            "tokenizer_training_characters",
             "max_train_characters",
             "max_validation_characters",
         ):
@@ -124,11 +116,39 @@ class DataConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class TokenizerConfig:
+    type: str = "character"
+    vocab_size: int | None = None
+    max_fit_characters: int | None = None
+
+    def __post_init__(self) -> None:
+        if not self.type:
+            raise ValueError("tokenizer.type must not be empty")
+        if self.type == "bpe":
+            if self.vocab_size is None:
+                raise ValueError("tokenizer.vocab_size is required for BPE")
+            if self.vocab_size < 256:
+                raise ValueError("tokenizer.vocab_size must be at least 256")
+        elif self.vocab_size is not None:
+            raise ValueError("tokenizer.vocab_size is only supported for BPE")
+        if self.max_fit_characters is not None and self.max_fit_characters <= 0:
+            raise ValueError("tokenizer.max_fit_characters must be positive when set")
+        if (
+            self.type not in ("character", "bpe")
+            and self.max_fit_characters is not None
+        ):
+            raise ValueError(
+                "tokenizer.max_fit_characters is only supported for fitted tokenizers"
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class ExperimentConfig:
     name: str
     output_dir: Path
     model_family: Literal["tinygpt"]
     model: TinyGPTConfig
+    tokenizer: TokenizerConfig
     training: TrainingConfig
     data: DataConfig
 
@@ -137,7 +157,14 @@ def load_config(path: Path) -> ExperimentConfig:
     with path.open("rb") as config_file:
         raw = tomllib.load(config_file)
 
-    expected_keys = {"name", "output_dir", "model", "training", "data"}
+    expected_keys = {
+        "name",
+        "output_dir",
+        "model",
+        "tokenizer",
+        "training",
+        "data",
+    }
     unknown_keys = raw.keys() - expected_keys
     if unknown_keys:
         raise ValueError(f"unknown top-level config fields: {sorted(unknown_keys)}")
@@ -146,6 +173,7 @@ def load_config(path: Path) -> ExperimentConfig:
         name = raw["name"]
         output_dir = Path(raw["output_dir"])
         model_values = _table(raw, "model")
+        tokenizer_values = _table(raw, "tokenizer")
         training_values = _table(raw, "training")
         data_values = _table(raw, "data")
     except (KeyError, TypeError) as error:
@@ -166,6 +194,7 @@ def load_config(path: Path) -> ExperimentConfig:
             output_dir=output_dir,
             model_family=model_family,
             model=TinyGPTConfig(**model_values),
+            tokenizer=TokenizerConfig(**tokenizer_values),
             training=TrainingConfig(**training_values),
             data=DataConfig(**data_values),
         )
