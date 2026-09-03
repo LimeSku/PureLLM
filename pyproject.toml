@@ -5,10 +5,19 @@ description = "Educational language-model implementations built from scratch"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "fastapi>=0.116.1",
     "numpy>=2.5.0",
     "tiktoken>=0.14.0",
     "torch>=2.13.0",
+    "uvicorn>=0.35.0",
 ]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=8.4.1",
+]
+
 [project.scripts]
 download = "scripts:download_dataset.main"
 

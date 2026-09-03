@@ -31,6 +31,16 @@ Train the TinyStories model (fitted tokenizers are cached automatically):
 uv run python scripts/train.py recipes/tinygpt/tiny_stories.toml
 ```
 
+Serve a trained checkpoint with the inference API:
+
+```bash
+PURELLM_CHECKPOINT=runs/tinygpt-shakespeare/checkpoints/best.pt \
+  uv run uvicorn purellm.api:app
+```
+
+The health and generation endpoints are available at `/health` and `/generate`.
+Interactive OpenAPI documentation is available at `/docs`.
+
 ## Implementations
 
 ### NumPy
