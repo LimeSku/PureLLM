@@ -11,4 +11,6 @@ checkpoints/
 runs/
 datasets/discord/
 datasets/tiny_stories/
+articles/
 .DS_Store
+work/
