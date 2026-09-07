@@ -1,5 +1,6 @@
 import argparse
 import warnings
+from dataclasses import replace
 from pathlib import Path
 from time import perf_counter
 
@@ -332,7 +333,8 @@ def main() -> None:
     device = select_device()
     if training_config.precision == "bf16" and device.type == "cpu":
         warnings.warn("bf16 unavailable on CPU; falling back to fp32")
-        training_config.precision = "fp32"
+        training_config = replace(training_config, precision="fp32")
+        config = replace(config, training=training_config)
     if training_config.precision == "bf16":
         if device.type not in {"cuda", "mps"}:
             raise ValueError("bf16 training is currently only supported on CUDA or MPS")
