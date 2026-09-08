@@ -37,6 +37,11 @@ class GenerateRequest(BaseModel):
         le=2.0,
         description="Sampling temperature.",
     )
+    top_k: int | None = Field(
+        default=None,
+        ge=1,
+        description="Limit sampling to the most likely tokens.",
+    )
 
     @field_validator("prompt")
     @classmethod
@@ -123,6 +128,7 @@ def create_app(
                 max_new_tokens=payload.max_new_tokens,
                 temperature=payload.temperature,
                 device=device,
+                top_k=payload.top_k,
             )
             elapsed = perf_counter() - started_at
 

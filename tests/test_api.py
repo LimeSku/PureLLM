@@ -43,21 +43,36 @@ def test_inference_api(tmp_path: Path) -> None:
         checkpoint_path,
     )
 
-    with patch(
-        "purellm.api.load_model_checkpoint",
-        wraps=load_model_checkpoint,
-    ) as loader:
+    with (
+        patch(
+            "purellm.api.load_model_checkpoint",
+            wraps=load_model_checkpoint,
+        ) as loader,
+        patch(
+            "purellm.torchgpt.generation.torch.multinomial",
+            wraps=torch.multinomial,
+        ) as sampler,
+    ):
         with TestClient(
             create_app(checkpoint_path, device=torch.device("cpu"))
         ) as client:
             health = client.get("/health")
             generated = client.post(
                 "/generate",
-                json={"prompt": "a", "max_new_tokens": 2, "temperature": 1.0},
+                json={
+                    "prompt": "a",
+                    "max_new_tokens": 2,
+                    "temperature": 1.0,
+                    "top_k": 1,
+                },
             )
             invalid = client.post(
                 "/generate",
                 json={"prompt": "a", "max_new_tokens": MAX_NEW_TOKENS + 1},
+            )
+            invalid_top_k = client.post(
+                "/generate",
+                json={"prompt": "a", "top_k": 0},
             )
             openapi = client.get("/openapi.json")
 
@@ -68,5 +83,7 @@ def test_inference_api(tmp_path: Path) -> None:
     assert generated.json()["generated_tokens"] == 2
     assert generated.json()["latency_ms"] > 0
     assert generated.json()["tokens_per_second"] > 0
+    assert all(call.args[0].shape == (1, 1) for call in sampler.call_args_list)
     assert invalid.status_code == 422
+    assert invalid_top_k.status_code == 422
     assert {"/health", "/generate"} <= openapi.json()["paths"].keys()

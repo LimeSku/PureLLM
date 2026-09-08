@@ -11,6 +11,7 @@ def generate(
     temperature: float,
     device: torch.device,
     autocast_dtype: torch.dtype | None = None,
+    top_k: int | None = None,
 ) -> list[int]:
     if not prompt_ids:
         raise ValueError("prompt_ids must not be empty")
@@ -18,6 +19,8 @@ def generate(
         raise ValueError("max_new_tokens must be non-negative")
     if temperature <= 0:
         raise ValueError("temperature must be positive")
+    if top_k is not None and top_k <= 0:
+        raise ValueError("top_k must be positive")
 
     # model.eval()
 
@@ -72,8 +75,16 @@ def generate(
             cached_length += context.shape[1]
 
             next_token_logits = logits[:, -1].float() / temperature
+            top_indices = None
+            if top_k is not None:
+                next_token_logits, top_indices = torch.topk(
+                    next_token_logits,
+                    min(top_k, next_token_logits.shape[-1]),
+                )
             probabilities = torch.softmax(next_token_logits, dim=-1)
             next_token = torch.multinomial(probabilities, num_samples=1)
+            if top_indices is not None:
+                next_token = torch.gather(top_indices, dim=-1, index=next_token)
             generated = torch.cat((generated, next_token), dim=1)
 
             if cached_length == model.ctx_length:

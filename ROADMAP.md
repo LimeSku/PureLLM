@@ -1,6 +1,6 @@
 # Roadmap
 
-1. Add greedy, top-k, and top-p generation.
+1. Add greedy and top-p generation.
 2. Add a KV cache and compare generation speed.
 3. Compare architecture choices: positional encodings, normalization,
    activations, and attention variants.

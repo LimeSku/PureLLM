@@ -14,6 +14,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("prompt")
     parser.add_argument("--max-new-tokens", type=int, default=300)
     parser.add_argument("--temperature", type=float, default=0.8)
+    parser.add_argument("--top-k", type=int)
     parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
 
@@ -53,6 +54,7 @@ def main() -> None:
         max_new_tokens=args.max_new_tokens,
         temperature=args.temperature,
         device=device,
+        top_k=args.top_k,
     )
     generation_elapsed = perf_counter() - generation_started_at
     generated_token_count = len(generated_ids) - len(prompt_ids)
