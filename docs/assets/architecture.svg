@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title description" shape-rendering="geometricPrecision">
+  <title id="title">PureLLM decoder-only architecture</title>
+  <desc id="description">A horizontal token-generation pipeline with the repeated pre-normalized transformer decoder block expanded vertically below it.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 10 5 0 10Z" fill="#66717a"/>
+    </marker>
+    <style>
+      text { font-family: "Helvetica Neue", Arial, sans-serif; fill: #20262c; }
+      .node { fill: #ffffff; stroke: #66717a; stroke-width: 1.25; vector-effect: non-scaling-stroke; }
+      .focus { fill: #edf2f5; stroke: #365f7d; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+      .panel { fill: #f4f6f7; stroke: #b8c0c6; stroke-width: 1.25; vector-effect: non-scaling-stroke; }
+      .sum { fill: #ffffff; stroke: #365f7d; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+      .arrow { fill: none; stroke: #66717a; stroke-width: 1.25; marker-end: url(#arrow); vector-effect: non-scaling-stroke; }
+      .residual { stroke: #8a949c; stroke-dasharray: 4 4; }
+      .label { font-size: 16px; font-weight: 500; text-anchor: middle; }
+      .small { fill: #626d76; font-size: 13px; text-anchor: middle; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="760" fill="#fbfbfa"/>
+
+  <g aria-label="Token generation path">
+    <rect class="node" x="25" y="70" width="90" height="60" rx="3"/>
+    <text class="label" x="70" y="106">Text</text>
+
+    <path class="arrow" d="M115 100H145"/>
+    <rect class="node" x="145" y="70" width="130" height="60" rx="3"/>
+    <text class="label" x="210" y="106">Tokenizer</text>
+
+    <path class="arrow" d="M275 100H305"/>
+    <text class="small" x="290" y="88">IDs</text>
+    <rect class="node" x="305" y="70" width="200" height="60" rx="3"/>
+    <text class="label" x="405" y="96">
+      <tspan x="405" dy="0">Token + position</tspan>
+      <tspan x="405" dy="22">embeddings</tspan>
+    </text>
+
+    <path class="arrow" d="M505 100H535"/>
+    <rect class="focus" x="535" y="70" width="130" height="60" rx="3"/>
+    <text class="label" x="600" y="96">
+      <tspan x="600" dy="0">Decoder</tspan>
+      <tspan x="600" dy="22">block × N</tspan>
+    </text>
+
+    <path class="arrow" d="M665 100H695"/>
+    <rect class="node" x="695" y="70" width="160" height="60" rx="3"/>
+    <text class="label" x="775" y="96">
+      <tspan x="775" dy="0">Final norm</tspan>
+      <tspan x="775" dy="22">+ LM head</tspan>
+    </text>
+
+    <path class="arrow" d="M855 100H885"/>
+    <rect class="node" x="885" y="70" width="180" height="60" rx="3"/>
+    <text class="label" x="975" y="96">
+      <tspan x="975" dy="0">Temperature / top-k</tspan>
+      <tspan x="975" dy="22">sampling</tspan>
+    </text>
+
+    <path class="arrow" d="M1065 100H1095"/>
+    <rect class="node" x="1095" y="70" width="80" height="60" rx="3"/>
+    <text class="label" x="1135" y="96">
+      <tspan x="1135" dy="0">Next</tspan>
+      <tspan x="1135" dy="22">token ↻</tspan>
+    </text>
+  </g>
+
+  <path d="M600 130V190" fill="none" stroke="#365f7d" stroke-width="1.25" stroke-dasharray="4 5" vector-effect="non-scaling-stroke"/>
+
+  <g aria-label="Expanded pre-normalized decoder block">
+    <rect class="panel" x="390" y="190" width="420" height="550" rx="4"/>
+    <text x="600" y="226" text-anchor="middle" font-size="17" font-weight="600">Pre-norm decoder block</text>
+
+    <rect class="node" x="520" y="245" width="160" height="38" rx="3"/>
+    <text class="label" x="600" y="270">Block input</text>
+
+    <path class="arrow" d="M600 283V310"/>
+    <rect class="node" x="505" y="310" width="190" height="44" rx="3"/>
+    <text class="label" x="600" y="338">LayerNorm</text>
+
+    <path class="arrow" d="M600 354V375"/>
+    <rect class="node" x="465" y="375" width="270" height="48" rx="3"/>
+    <text class="label" x="600" y="405">Causal multi-head attention</text>
+
+    <path class="arrow" d="M600 423V445"/>
+    <path class="arrow residual" d="M520 264H440V465H580"/>
+    <text class="small" x="466" y="453">residual</text>
+    <circle class="sum" cx="600" cy="465" r="20"/>
+    <text x="600" y="472" text-anchor="middle" font-size="24" font-weight="600">+</text>
+
+    <path class="arrow" d="M600 485V510"/>
+    <rect class="node" x="505" y="510" width="190" height="44" rx="3"/>
+    <text class="label" x="600" y="538">LayerNorm</text>
+
+    <path class="arrow" d="M600 554V575"/>
+    <rect class="node" x="465" y="575" width="270" height="48" rx="3"/>
+    <text class="label" x="600" y="605">SwiGLU feed-forward</text>
+
+    <path class="arrow" d="M600 623V645"/>
+    <path class="arrow residual" d="M620 465H760V665H620"/>
+    <text class="small" x="734" y="653">residual</text>
+    <circle class="sum" cx="600" cy="665" r="20"/>
+    <text x="600" y="672" text-anchor="middle" font-size="24" font-weight="600">+</text>
+
+    <path class="arrow" d="M600 685V710"/>
+    <text class="small" x="600" y="728">block output</text>
+  </g>
+</svg>
