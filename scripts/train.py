@@ -1,4 +1,6 @@
 import argparse
+import json
+import math
 import warnings
 from dataclasses import replace
 from pathlib import Path
@@ -196,6 +198,22 @@ def train_model(
                 )
                 if validation_loss is not None:
                     message += f" | val {validation_loss:.4f}"
+                    with (checkpoint_dir.parent / "metrics.jsonl").open(
+                        "a", encoding="utf-8"
+                    ) as metrics_file:
+                        print(
+                            json.dumps(
+                                {
+                                    "step": step,
+                                    "train_loss": loss.item(),
+                                    "val_loss": validation_loss,
+                                    "perplexity": math.exp(validation_loss),
+                                    "learning_rate": scheduler.get_last_lr()[0],
+                                    "tokens_per_second": tokens_per_second,
+                                }
+                            ),
+                            file=metrics_file,
+                        )
                 message += (
                     f" | lr {scheduler.get_last_lr()[0]:.2e} | "
                     f"{tokens_per_second:,.0f} tok/s | "
