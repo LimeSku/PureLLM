@@ -18,6 +18,7 @@ class TinyGPTConfig:
     init_std: float = 0.02
     tie_embeddings: bool = True
     position_encoding: Literal["learned", "rope"] = "rope"
+    normalization: Literal["layernorm", "rmsnorm"] = "layernorm"
 
     def __post_init__(self) -> None:
         for name in (
@@ -41,6 +42,8 @@ class TinyGPTConfig:
             raise ValueError(
                 f"unsupported model.position_encoding: {self.position_encoding!r}"
             )
+        if self.normalization not in ("layernorm", "rmsnorm"):
+            raise ValueError(f"unsupported model.normalization: {self.normalization!r}")
 
 
 @dataclass(frozen=True, slots=True)

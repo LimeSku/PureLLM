@@ -1,9 +1,11 @@
+import pytest
 import torch
 
 from purellm.torchgpt.model import TinyGPT
 
 
-def test_kv_cache_matches_full_context() -> None:
+@pytest.mark.parametrize("normalization", ["layernorm", "rmsnorm"])
+def test_kv_cache_matches_full_context(normalization: str) -> None:
     torch.manual_seed(0)
     tokens = torch.tensor([[1, 2, 3, 4, 5]])
 
@@ -17,7 +19,13 @@ def test_kv_cache_matches_full_context() -> None:
             hidden_dim=16,
             dropout=0.0,
             position_encoding=position_encoding,
+            normalization=normalization,
         ).eval()
+        norm_type = torch.nn.RMSNorm if normalization == "rmsnorm" else torch.nn.LayerNorm
+        assert isinstance(model.final_layer_norm, norm_type)
+        for block in model.blocks:
+            assert isinstance(block.ln1, norm_type)
+            assert isinstance(block.ln2, norm_type)
 
         with torch.no_grad():
             expected = [model(tokens[:, :end])[:, -1] for end in range(3, 6)]

@@ -59,6 +59,7 @@ def save_training_checkpoint(
             "init_std": model.init_std,
             "tie_embeddings": model.tie_embeddings,
             "position_encoding": model.position_encoding,
+            "normalization": model.normalization,
         },
         "model_state_dict": model.state_dict(),
         "optimizer_type": type(optimizer).__name__,

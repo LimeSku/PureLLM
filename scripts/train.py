@@ -57,6 +57,7 @@ def validate_model(model: TinyGPT, config: TinyGPTConfig) -> None:
         "init_std": (model.init_std, config.init_std),
         "tie_embeddings": (model.tie_embeddings, config.tie_embeddings),
         "position_encoding": (model.position_encoding, config.position_encoding),
+        "normalization": (model.normalization, config.normalization),
     }
     mismatches = [
         name
@@ -380,6 +381,7 @@ def main() -> None:
             dropout=model_config.dropout,
             tie_embeddings=model_config.tie_embeddings,
             position_encoding=model_config.position_encoding,
+            normalization=model_config.normalization,
         ).to(device)
 
         optimizer = torch.optim.AdamW(

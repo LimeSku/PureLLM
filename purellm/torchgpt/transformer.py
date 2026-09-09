@@ -6,6 +6,14 @@ from purellm.torchgpt.attention import MultiHeadCausalSelfAttention
 from purellm.torchgpt.position import PositionEncoding
 
 
+def create_normalization(embedding_dim: int, normalization: str) -> nn.Module:
+    if normalization == "layernorm":
+        return nn.LayerNorm(embedding_dim)
+    if normalization == "rmsnorm":
+        return nn.RMSNorm(embedding_dim, eps=1e-5)
+    raise ValueError(f"unsupported normalization: {normalization!r}")
+
+
 class FeedForward(nn.Module):
     def __init__(self, embedding_dim: int, hidden_dim: int, init_std: float = 0.02):
         super().__init__()
@@ -29,9 +37,10 @@ class TransformerBlock(nn.Module):
         init_std: float = 0.02,
         dropout: float = 0.0,
         position_encoding: PositionEncoding = "learned",
+        normalization: str = "layernorm",
     ) -> None:
         super().__init__()
-        self.ln1 = nn.LayerNorm(embedding_dim)
+        self.ln1 = create_normalization(embedding_dim, normalization)
         self.attention = MultiHeadCausalSelfAttention(
             embedding_dim=embedding_dim,
             num_heads=num_heads,
@@ -40,7 +49,7 @@ class TransformerBlock(nn.Module):
             position_encoding=position_encoding,
         )
 
-        self.ln2 = nn.LayerNorm(embedding_dim)
+        self.ln2 = create_normalization(embedding_dim, normalization)
         self.feed_forward = FeedForward(
             embedding_dim=embedding_dim, hidden_dim=hidden_dim, init_std=init_std
         )

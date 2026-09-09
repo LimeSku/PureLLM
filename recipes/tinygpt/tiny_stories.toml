@@ -12,6 +12,7 @@ dropout = 0.1
 init_std = 0.02
 tie_embeddings = true
 position_encoding = "rope"
+normalization = "rmsnorm"
 
 [training]
 epochs = 1
