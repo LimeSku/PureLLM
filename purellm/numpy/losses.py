@@ -5,27 +5,25 @@ class SequenceCrossEntropy:
     def __init__(self):
         self.probs = None
         self.targets = None
-        self.eps = 1e-12
 
     def __call__(self, logits: np.ndarray, targets: np.ndarray) -> float:
         return self.forward(logits, targets)
 
     def forward(self, logits: np.ndarray, targets: np.ndarray) -> float:
-        """
-        1. compute probs of each class by softmax on logits
-        2. identify the predicted proba for each actual target
-        3. take the - mean(log(proba + epsilon)) to get value close to 0 when proba is ok, very high otherwise
-        """
-        self.probs = self._softmax(logits)
+        """Compute mean token cross-entropy using stable log-probabilities."""
+        shifted_logits = logits - np.max(logits, axis=-1, keepdims=True)
+        exp_logits = np.exp(shifted_logits)
+        sum_exp_logits = np.sum(exp_logits, axis=-1, keepdims=True)
+        self.probs = exp_logits / sum_exp_logits
         self.targets = targets
-        probs_flat = self.probs.reshape(-1, self.probs.shape[-1])
+        log_probs = shifted_logits - np.log(sum_exp_logits)
+        log_probs_flat = log_probs.reshape(-1, log_probs.shape[-1])
         targets_flat = targets.reshape(-1)
-        # correct_probs = self.probs[np.arange(len(logits)), targets]
-        correct_probs = probs_flat[
+        correct_log_probs = log_probs_flat[
             np.arange(len(targets_flat)),
             targets_flat,
         ]
-        return -np.mean(np.log(correct_probs + self.eps))
+        return float(-np.mean(correct_log_probs))
 
     def backward(self) -> np.ndarray:
         """
@@ -46,22 +44,15 @@ class SequenceCrossEntropy:
         dL/dz_k = d/dz_k [-z_y + log(sum_j exp(z_j))]
         first term: -one_hot(y)_k
         second term: exp(z_k) / sum_j exp(z_j) <=> p_k
-        so finally dL/dlogits = probs - one_hot(target)
+        so finally dL/dlogits = probs - one_hot(target), divided by the
+        number of tokens for the mean loss.
         """
-        # n_tokens = self.probs.shape[0]
         dlogits = self.probs.copy()
         dlogits_flat = dlogits.reshape(-1, dlogits.shape[-1])
         targets_flat = self.targets.reshape(-1)
         n_tokens = len(targets_flat)
 
-        # dlogits[np.arange(n_tokens), self.targets] -= 1
-        # dlogits /= n_tokens
         dlogits_flat[np.arange(n_tokens), targets_flat] -= 1
 
         dlogits_flat /= n_tokens
         return dlogits
-
-    def _softmax(self, x: np.ndarray) -> np.ndarray:
-        x = x - np.max(x, axis=-1, keepdims=True)
-        exp_x = np.exp(x)
-        return exp_x / np.sum(exp_x, axis=-1, keepdims=True)
